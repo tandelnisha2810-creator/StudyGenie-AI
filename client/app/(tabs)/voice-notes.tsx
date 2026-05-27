@@ -152,28 +152,46 @@ export default function VoiceNotesScreen() {
 
 
 
-  const handleDelete = useCallback(async (noteId: string) => {
-    Alert.alert('Delete voice note?', 'This action cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            setBusyId(noteId);
-            setNotes((current) => current.filter((note) => getNoteId(note) !== noteId));
-            await deleteVoiceNote(noteId, token);
-          } catch (error) {
-            console.error('handleDelete error', error);
-            Alert.alert('Error', 'Failed to delete voice note.');
-            void loadNotes();
-          } finally {
-            setBusyId(null);
-          }
+  const handleDelete = useCallback(
+    async (noteId: string) => {
+      if (!noteId) {
+        Alert.alert('Error', 'Invalid voice note id.');
+        return;
+      }
+
+      Alert.alert('Delete voice note?', 'This action cannot be undone.', [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setBusyId(noteId);
+
+              // Stop audio playback (card component unloads on unmount, but ensure UX immediately)
+              setNotes((current) => current.filter((note) => getNoteId(note) !== noteId));
+
+              await deleteVoiceNote(noteId, token);
+
+              // Refresh to ensure recent transcript + any shared counters are accurate
+              // (local optimistic update already happened, so this is mostly for sync)
+              await loadNotes();
+
+              Alert.alert('Deleted', 'Voice note deleted successfully');
+            } catch (error) {
+              console.error('handleDelete error', error);
+              Alert.alert('Error', 'Failed to delete voice note.');
+              void loadNotes();
+            } finally {
+              setBusyId(null);
+            }
+          },
         },
-      },
-    ]);
-  }, [loadNotes, token]);
+      ]);
+    },
+    [loadNotes, token],
+  );
+
 
   const stats = useMemo(() => {
     const transcripted = notes.filter((note) => Boolean(note.transcript?.trim()));
@@ -279,8 +297,15 @@ export default function VoiceNotesScreen() {
           ) : (
             <View style={styles.list}>
               {notes.length === 0 ? (
-                // Requirement: remove “No voice notes yet” from the Your Library section.
-                <View style={styles.libraryEmptySpacer} />
+                <View style={styles.libraryEmptyState}>
+                  <View style={styles.emptyIcon}>
+                    <Ionicons name="mic-outline" size={30} color={COLORS.primary} />
+                  </View>
+                  <Text style={styles.emptyTitle}>No voice notes yet</Text>
+                  <Text style={styles.emptyDescription}>
+                    Record your first note, generate an AI summary or quiz, then save it into your library.
+                  </Text>
+                </View>
               ) : (
                 notes.map((item) => (
                   <VoiceNoteCard
@@ -291,6 +316,7 @@ export default function VoiceNotesScreen() {
                   />
                 ))
               )}
+
             </View>
           )}
 
@@ -450,6 +476,18 @@ const styles = StyleSheet.create({
   libraryEmptySpacer: {
     height: 8,
   },
+  libraryEmptyState: {
+    padding: SPACING.xl,
+    borderRadius: BORDER_RADIUS.xl,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.gray100,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: SPACING.sm,
+    marginBottom: SPACING.lg,
+  },
+
 
   emptyIcon: {
     width: 56,

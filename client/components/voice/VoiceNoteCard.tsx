@@ -80,6 +80,7 @@ export function VoiceNoteCard({ item, isBusy = false, onDelete, onAI }: VoiceNot
   const [positionMillis, setPositionMillis] = useState(0);
   const [durationMillis, setDurationMillis] = useState(item.durationSeconds ? item.durationSeconds * 1000 : 0);
 
+
   const playableUri = item.audioUrl || item.audioUri || item.localUri || '';
   const noteId = getNoteId(item);
   const transcript = item.transcript?.trim() ?? '';

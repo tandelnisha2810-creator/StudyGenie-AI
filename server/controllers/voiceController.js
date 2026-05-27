@@ -171,12 +171,30 @@ async function getVoiceNotesByUser(req, res) {
 async function deleteVoiceNote(req, res) {
   try {
     const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        success: false,
+        message: 'Voice note id is required.',
+      });
+    }
+
     const note = await VoiceNote.findById(id);
 
     if (!note) {
       return res.status(404).json({
         success: false,
         message: 'Voice note not found.',
+      });
+    }
+
+    // Ownership validation (client should only be able to delete their own notes)
+    // If auth middleware has attached a user, validate it. Otherwise, keep legacy behavior.
+    const requesterUserId = req.user?.uid || req.user?.userId || req.userId;
+    if (requesterUserId && String(note.userId) !== String(requesterUserId)) {
+      return res.status(403).json({
+        success: false,
+        message: 'You do not have permission to delete this voice note.',
       });
     }
 
@@ -195,8 +213,7 @@ async function deleteVoiceNote(req, res) {
 
     return res.json({
       success: true,
-      message: 'Voice note deleted successfully.',
-      deletedId: id,
+      message: 'Voice note deleted successfully',
     });
   } catch (error) {
     return res.status(500).json({
@@ -206,6 +223,7 @@ async function deleteVoiceNote(req, res) {
     });
   }
 }
+
 
 async function summarizeTranscript(req, res) {
   try {
