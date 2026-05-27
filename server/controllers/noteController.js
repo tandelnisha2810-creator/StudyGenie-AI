@@ -108,9 +108,15 @@ exports.getNotes = async (req, res) => {
       });
     }
 
-    const notes = await Note.find({ userId: userId.toString() })
+    // Important: /notes must show ONLY manually created study notes (exclude voice notes)
+    // Backend note type convention in this repo: type = "text-note" | "voice-note"
+    const notes = await Note.find({
+      userId: userId.toString(),
+      type: "text-note",
+    })
       .sort({ isPinned: -1, updatedAt: -1 })
       .lean();
+
 
     const formattedNotes = notes.map((note) => ({
       ...note,

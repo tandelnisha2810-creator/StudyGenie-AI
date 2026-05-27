@@ -111,7 +111,13 @@ export default function NotesScreen() {
       results = results.filter((note) => note.subject === selectedSubject);
     }
 
+    // Enforce manual-only rendering on the client as well.
+    results = results.filter(
+      (note) => (note as any).type === "text-note" || !(note as any).type
+    );
+
     setFilteredNotes(results);
+
   }, [searchText, notes, selectedSubject]);
 
   const loadNotes = async () => {
@@ -138,9 +144,15 @@ export default function NotesScreen() {
       });
 
       // unified notes list now comes only from main Note collection
-      const unified = [...sortedTextNotes];
+    // Ensure the Notes tab never renders voice notes even if API returns mixed data.
+    const manualOnly = sortedTextNotes.filter(
+      (n) => (n as any).type === "text-note" || !(n as any).type
+    );
+
+      const unified = [...manualOnly];
 
       unified.sort((a, b) => {
+
         // pinned notes first, then newest updatedAt
         if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
         return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
