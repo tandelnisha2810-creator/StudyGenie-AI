@@ -1,21 +1,38 @@
-# TODO - Fix DELETE NOTE FEATURE
+ # TODO — Notes + Voice Notes Integration (Production)
 
-## Plan steps
-- [ ] Update `client/components/NoteCard.tsx` delete button so it reliably calls `onDelete(note.id, note._id)` and cannot be swallowed by the card press.
-- [ ] Update `client/app/(tabs)/notes.tsx`:
-  - [ ] Modify `handleDeleteNote` signature to accept `(id, mongoId)` and log: `🚀 handleDeleteNote called with:`
-  - [ ] Ensure NoteCard gets `onDelete={handleDeleteNote}` prop.
-  - [ ] Add exact required logs on delete click.
-  - [ ] Ensure optimistic UI removal uses `setNotes(prev => prev.filter(note => note.id !== id && note._id !== id))`.
-- [ ] Update `client/services/noteService.js` delete implementation:
-  - [ ] Add exact required log: `🌐 Sending DELETE request:` and use `axios.delete(`${API_BASE_URL}/${id}`)`.
-- [ ] Update `server/controllers/noteController.js`:
-  - [ ] Add exact required log: `🔥 DELETE API HIT:`
-  - [ ] Ensure delete uses `await Note.findByIdAndDelete(req.params.id)`.
-  - [ ] Return EXACT response: `return res.status(200).json({ success: true })`.
-- [ ] Verify route `server/routes/noteRoutes.js` is exactly `router.delete("/:id", deleteNote)`.
-- [ ] Test end-to-end and confirm:
-  - [ ] Browser logs show `🗑 DELETE CLICKED`
-  - [ ] Frontend calls DELETE and backend logs `🔥 DELETE API HIT`.
-  - [ ] Card disappears instantly.
+## Step 1 — Fix route mismatch & confirm save endpoints
+- [ ] Verify actual backend call used by “Save as Study Note” flow
+
+## Step 2 — Update Note schema to support voice notes
+- [x] Add `type`, `audioUri`, `quiz` fields to `server/models/Note.js`
+
+
+## Step 3 — Update Note controller to accept voice-note payload
+- [x] Update `createNote` / `updateNote` to persist `summary`, `quiz`, `audioUri`, `type`
+
+
+
+## Step 4 — Save voice note into main Notes collection
+- [x] Update `client/app/(tabs)/voice-notes.tsx` to call `createNote` on save
+
+- [x] Include transcript(content), summary, quiz, title, audioUri, type, tags
+
+
+## Step 5 — Prevent duplicate voice notes rendering
+- [x] Update `client/app/(tabs)/notes.tsx` to stop fetching `VoiceNote` collection
+
+
+## Step 6 — Update NoteCard UI for voice notes
+- [x] Detect `note.type === "voice-note"` and render transcript preview + quiz count
+
+
+- [x] Add play audio button for voice notes using `expo-av`
+
+
+
+## Step 7 — Delete behavior stays correct
+- [ ] Ensure Notes tab delete removes only from the main Note collection for voice notes
+
+## Step 8 — Playback + counters
+- [ ] Ensure createdAt/updatedAt mapping and notes count updates after save
 

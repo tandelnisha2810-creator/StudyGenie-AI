@@ -3,7 +3,8 @@
  * Displays a single note with quick actions for pin, favorite, summarize and delete.
  */
 
-import React from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+
 import {
   View,
   Text,
@@ -12,7 +13,9 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { Card } from "@/components/ui/Card";
+import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { COLORS, TEXT_COLORS } from "../utils/colors";
+
 import { SPACING, BORDER_RADIUS, SHADOW } from "../utils/spacing";
 import { TYPOGRAPHY } from "../utils/typography";
 import {
@@ -22,7 +25,10 @@ import {
   Trash2,
   Edit2,
   MessageCircle,
+  Mic,
+  Play,
 } from "lucide-react-native";
+
 
 export interface NoteItem {
   id: string;
@@ -38,7 +44,13 @@ export interface NoteItem {
   createdAt: string;
   updatedAt: string;
   userId: string;
+
+  // voice-note extensions (optional)
+  type?: 'text-note' | 'voice-note' | string;
+  quiz?: unknown;
+  audioUri?: string;
 }
+
 
 interface NoteCardProps {
   note: NoteItem;
@@ -78,10 +90,77 @@ export const NoteCard: React.FC<NoteCardProps> = ({
     month: "short",
     day: "numeric",
   });
-  const previewText = note.summary || note.content;
+
+  const isVoice = note.type === 'voice-note';
+  const quizCount = useMemo(() => {
+    const q = (note as any).quiz;
+    if (!q) return 0;
+    if (Array.isArray(q)) return q.length;
+    return 0;
+  }, [note]);
+
+  const previewText = isVoice ? (note.content || "") : (note.summary || note.content);
   const cardBgColor = getNoteColorBg(note.color);
 
+  const soundRef = useRef<Audio.Sound | null>(null);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      void soundRef.current?.unloadAsync();
+      soundRef.current = null;
+    };
+  }, []);
+
+  const handlePlay = async () => {
+    if (!isVoice) return;
+    const uri = (note as any).audioUri as string | undefined;
+    if (!uri) return;
+
+    if (isLoadingAudio) return;
+
+    try {
+      setIsLoadingAudio(true);
+
+      let sound = soundRef.current;
+      if (!sound) {
+        sound = new Audio.Sound();
+        soundRef.current = sound;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+        interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+
+      await sound.loadAsync({ uri }, { shouldPlay: false }, true);
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (!status.isLoaded) return;
+        setIsPlayingAudio(Boolean(status.isPlaying));
+      });
+
+      const status = await sound.getStatusAsync();
+      if (status.isLoaded && status.isPlaying) {
+        await sound.pauseAsync();
+        setIsPlayingAudio(false);
+      } else {
+        await sound.playAsync();
+        setIsPlayingAudio(true);
+      }
+    } catch {
+      setIsPlayingAudio(false);
+    } finally {
+      setIsLoadingAudio(false);
+    }
+  };
+
   return (
+
     <Card
       onPress={onPress}
       style={[styles.card, { backgroundColor: cardBgColor }]}
@@ -169,15 +248,31 @@ export const NoteCard: React.FC<NoteCardProps> = ({
           <Text style={styles.actionLabel}>Edit</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          onPress={onSummarize}
-          style={styles.actionButton}
-          disabled={isBusy}
-          activeOpacity={0.7}
-        >
-          <Sparkles size={16} color={COLORS.secondary} />
-          <Text style={styles.actionLabel}>Summarize</Text>
-        </TouchableOpacity>
+        {isVoice ? (
+          <TouchableOpacity
+            onPress={handlePlay}
+            style={styles.actionButton}
+            disabled={isBusy || isLoadingAudio}
+            activeOpacity={0.7}
+          >
+            {isLoadingAudio ? (
+              <ActivityIndicator size="small" color={COLORS.primary} />
+            ) : (
+              <Play size={16} color={COLORS.primary} />
+            )}
+            <Text style={styles.actionLabel}>{isPlayingAudio ? 'Pause' : 'Play'}</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            onPress={onSummarize}
+            style={styles.actionButton}
+            disabled={isBusy}
+            activeOpacity={0.7}
+          >
+            <Sparkles size={16} color={COLORS.secondary} />
+            <Text style={styles.actionLabel}>Summarize</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           onPress={() => onDelete(note.id, (note as any)._id)}
@@ -190,11 +285,13 @@ export const NoteCard: React.FC<NoteCardProps> = ({
           <Text style={[styles.actionLabel, styles.deleteLabel]}>Delete</Text>
         </TouchableOpacity>
       </View>
+
     </Card>
   );
 };
 
 const styles = StyleSheet.create({
+
   card: {
     flex: 1,
     minWidth: 260,
@@ -312,6 +409,7 @@ const styles = StyleSheet.create({
   deleteLabel: {
     color: COLORS.error,
   },
+
 });
 
 export default NoteCard;

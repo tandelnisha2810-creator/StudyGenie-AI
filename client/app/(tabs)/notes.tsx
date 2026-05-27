@@ -31,11 +31,25 @@ import {
 } from "@/services/noteService";
 import { NoteCard, NoteItem } from "@/components/NoteCard";
 import { NoteModal, NoteDraft } from "@/components/NoteModal";
+import { deleteVoiceNote } from "@/services/voiceService";
+
+
+type UnifiedNoteItem = NoteItem & {
+  // used to decide if delete should call voice API
+  __noteKind?: 'text' | 'voice';
+  // when voice note is shown inside Notes tab
+  voiceId?: string;
+};
+
+
 
 export default function NotesScreen() {
   const { user, loading: authLoading } = useAuth();
   const [notes, setNotes] = useState<NoteItem[]>([]);
   const [filteredNotes, setFilteredNotes] = useState<NoteItem[]>([]);
+  const [voiceNotesCount, setVoiceNotesCount] = useState(0);
+
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -106,16 +120,15 @@ export default function NotesScreen() {
       setLoading(true);
       if (!user?.uid) {
         setNotes([]);
+        setVoiceNotesCount(0);
         return;
       }
 
       const userNotes = await apiGetNotes(user.uid);
-      console.debug("✅ NotesScreen.loadNotes: got notes", {
-        count: userNotes?.length,
-      });
 
-      const sortedNotes: NoteItem[] = (userNotes || []).slice();
-      sortedNotes.sort((a: NoteItem, b: NoteItem) => {
+      const sortedTextNotes: NoteItem[] = (userNotes || []).slice();
+
+      sortedTextNotes.sort((a: NoteItem, b: NoteItem) => {
         if (a.isPinned === b.isPinned) {
           return (
             new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
@@ -124,7 +137,20 @@ export default function NotesScreen() {
         return a.isPinned ? -1 : 1;
       });
 
-      setNotes(sortedNotes);
+      // unified notes list now comes only from main Note collection
+      const unified = [...sortedTextNotes];
+
+      unified.sort((a, b) => {
+        // pinned notes first, then newest updatedAt
+        if (a.isPinned !== b.isPinned) return a.isPinned ? -1 : 1;
+        return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+      });
+
+      // voiceNotesCount is no longer needed for unified render; keep for backward compatibility counters
+      setVoiceNotesCount(0);
+
+      setNotes(unified);
+
       setErrorMessage("");
     } catch (error) {
       console.error("❌ NotesScreen.loadNotes error:", error);
@@ -132,11 +158,13 @@ export default function NotesScreen() {
       setErrorMessage(errorMsg);
       Alert.alert("Error", errorMsg);
       setNotes([]);
+      setVoiceNotesCount(0);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
+
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -277,6 +305,7 @@ export default function NotesScreen() {
 
   const handleDeleteNote = async (id: string, mongoId?: string) => {
     console.log("🚀 handleDeleteNote called with:", id);
+
     const idToUse = id?.toString?.() || mongoId?.toString?.();
     const safeId = idToUse?.toString?.();
     if (!safeId) {
@@ -287,8 +316,11 @@ export default function NotesScreen() {
 
 
 
+    // Voice notes are stored separately and are rendered inside this screen using NoteCard.
+    // For now we delete by detecting "voice" by id presence (voice notes id differs from mongo note id set).
     Alert.alert(
       "Are you sure you want to delete this note?",
+
       "This action cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
@@ -316,14 +348,26 @@ export default function NotesScreen() {
 
 
             try {
-              const resp = await apiDeleteNote(safeId);
+              const isLikelyVoice =
+                !!mongoId ||
+                (notes as any).some(
+                  (n: unknown) =>
+                    (n as any).id === safeId && (n as any).color === 'purple'
+                );
 
-              console.log("✅ apiDeleteNote returned:", resp);
-              console.log("✅ handleDeleteNote - backend delete success");
-              Alert.alert("Success", "Note deleted successfully");
 
-              // Refresh in background to keep ordering/counters consistent
+              if (isLikelyVoice) {
+                await deleteVoiceNote(safeId);
+                Alert.alert("Success", "Voice note deleted successfully");
+              } else {
+                const resp = await apiDeleteNote(safeId);
+                console.log("✅ apiDeleteNote returned:", resp);
+                Alert.alert("Success", "Note deleted successfully");
+              }
+
+               // Refresh in background to keep ordering/counters consistent
               loadNotes();
+
             } catch (error) {
               console.error("❌ handleDeleteNote error:", error);
               Alert.alert("Error", "Failed to delete note");
@@ -375,7 +419,7 @@ export default function NotesScreen() {
       setIsBusyId(null);
     }
   };
-
+ 
   const handleSummarize = async (note: NoteItem) => {
     console.log("✨ Summarizing note:", note.id);
     setIsBusyId(note.id);

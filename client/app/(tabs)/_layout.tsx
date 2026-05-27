@@ -7,9 +7,10 @@ import React from "react";
 import { Tabs } from "expo-router";
 import { COLORS } from "@/utils/colors";
 import { SPACING } from "@/utils/spacing";
-import { Home, MessageCircle, BookOpen, User, FileText } from "lucide-react-native";
+import { Ionicons } from "@expo/vector-icons";
 
 export default function TabLayout() {
+
   return (
     <Tabs
       screenOptions={{
@@ -36,7 +37,7 @@ export default function TabLayout() {
         options={{
           title: "Home",
           tabBarIcon: ({ color }) => (
-            <Home size={24} color={color} strokeWidth={2} />
+            <Ionicons name="home" size={24} color={color} />
           ),
         }}
       />
@@ -45,25 +46,7 @@ export default function TabLayout() {
         options={{
           title: "AI Chat",
           tabBarIcon: ({ color }) => (
-            <MessageCircle size={24} color={color} strokeWidth={2} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="notes"
-        options={{
-          title: "Notes",
-          tabBarIcon: ({ color }) => (
-            <BookOpen size={24} color={color} strokeWidth={2} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          tabBarIcon: ({ color }) => (
-            <User size={24} color={color} strokeWidth={2} />
+            <Ionicons name="chatbubble" size={24} color={color} />
           ),
         }}
       />
@@ -72,10 +55,38 @@ export default function TabLayout() {
         options={{
           title: "PDF AI",
           tabBarIcon: ({ color }) => (
-            <FileText size={24} color={color} strokeWidth={2} />
+            <Ionicons name="document-text" size={24} color={color} />
           ),
         }}
       />
+      <Tabs.Screen
+        name="notes"
+        options={{
+          title: "Notes",
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="book" size={24} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="voice-notes"
+        options={{
+          title: "Voice Notes",
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="mic" size={24} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "Profile",
+          tabBarIcon: ({ color }) => (
+            <Ionicons name="person" size={24} color={color} />
+          ),
+        }}
+      />
+
     </Tabs>
   );
 }

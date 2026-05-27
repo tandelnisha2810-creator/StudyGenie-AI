@@ -102,8 +102,8 @@ export default function ProfileScreen() {
 
               {userProfile?.createdAt && (
                 <Text style={styles.joinedDate}>
-                  Joined{" "}
-                  {new Date(userProfile.createdAt).toLocaleDateString("en-US", {
+Joined{' '}
+                  {new Date(userProfile.createdAt as any).toLocaleDateString("en-US", {
                     year: "numeric",
                     month: "long",
                   })}

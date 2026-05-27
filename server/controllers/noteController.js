@@ -28,7 +28,11 @@ exports.createNote = async (req, res) => {
       image = "",
       isPinned = false,
       isFavorite = false,
+      type = "text-note",
+      quiz = [],
+      audioUri = "",
     } = req.body;
+
 
     // Validation
     if (!userId || !title?.trim() || !content?.trim()) {
@@ -54,7 +58,13 @@ exports.createNote = async (req, res) => {
       image: (image || "").toString().trim(),
       isPinned: Boolean(isPinned),
       isFavorite: Boolean(isFavorite),
+
+      // Voice-note fields
+      type: (type || "text-note").toString().trim(),
+      quiz,
+      audioUri: (audioUri || "").toString().trim(),
     };
+
 
     console.log("✅ Creating note with data:", JSON.stringify(noteData, null, 2));
 
@@ -163,7 +173,11 @@ exports.updateNote = async (req, res) => {
       image,
       isPinned,
       isFavorite,
+      type,
+      quiz,
+      audioUri,
     } = req.body;
+
 
     if (title !== undefined) updates.title = title.toString().trim();
     if (content !== undefined) updates.content = content.toString().trim();
@@ -180,7 +194,12 @@ exports.updateNote = async (req, res) => {
         : [];
     }
 
+    if (type !== undefined) updates.type = (type || "text-note").toString().trim();
+    if (quiz !== undefined) updates.quiz = quiz;
+    if (audioUri !== undefined) updates.audioUri = (audioUri || "").toString().trim();
+
     updates.updatedAt = Date.now();
+
 
     const note = await Note.findByIdAndUpdate(id, updates, {
       new: true,
