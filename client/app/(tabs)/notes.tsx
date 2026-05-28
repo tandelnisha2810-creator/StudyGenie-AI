@@ -112,9 +112,13 @@ export default function NotesScreen() {
     }
 
     // Enforce manual-only rendering on the client as well.
-    results = results.filter(
-      (note) => (note as any).type === "text-note" || !(note as any).type
-    );
+    // Backwards compatibility: older notes may not have `type` set at all.
+    // Never show voice notes inside the /notes tab.
+    results = results.filter((note) => {
+      const t = (note as any).type;
+      return t === "text-note" || t === undefined || t === null;
+    });
+
 
     setFilteredNotes(results);
 
@@ -316,15 +320,19 @@ export default function NotesScreen() {
   };
 
   const handleDeleteNote = async (id: string, mongoId?: string) => {
-    console.log("🚀 handleDeleteNote called with:", id);
+    console.log("DELETE CLICKED HANDLER ENTER:", { id, mongoId });
 
-    const idToUse = id?.toString?.() || mongoId?.toString?.();
-    const safeId = idToUse?.toString?.();
+    // Prefer Mongo _id when provided; fallback to local id.
+    const safeId = (mongoId?.toString?.() || id?.toString?.())?.toString?.();
+
+    console.log("DELETE CLICKED HANDLER ID RESOLVED:", { safeId });
+
     if (!safeId) {
       console.error("❌ handleDeleteNote - invalid noteId:", { id, mongoId });
       Alert.alert("Error", "Invalid note id");
       return;
     }
+
 
 
 
@@ -360,27 +368,20 @@ export default function NotesScreen() {
 
 
             try {
-              const isLikelyVoice =
-                !!mongoId ||
-                (notes as any).some(
-                  (n: unknown) =>
-                    (n as any).id === safeId && (n as any).color === 'purple'
-                );
+              console.log("Calling delete API...");
+              // On the /notes tab, we ONLY delete study (text/manual) notes.
+              // Voice notes are managed by /voice-notes.
+              const resp = await apiDeleteNote(safeId);
+              console.log("✅ Delete success");
+              console.log("✅ apiDeleteNote returned:", resp);
+              Alert.alert("Success", "Note deleted successfully");
 
 
-              if (isLikelyVoice) {
-                await deleteVoiceNote(safeId);
-                Alert.alert("Success", "Voice note deleted successfully");
-              } else {
-                const resp = await apiDeleteNote(safeId);
-                console.log("✅ apiDeleteNote returned:", resp);
-                Alert.alert("Success", "Note deleted successfully");
-              }
-
-               // Refresh in background to keep ordering/counters consistent
+              // Refresh in background to keep ordering/counters consistent.
               loadNotes();
 
             } catch (error) {
+
               console.error("❌ handleDeleteNote error:", error);
               Alert.alert("Error", "Failed to delete note");
               await loadNotes();

@@ -274,16 +274,49 @@ export const NoteCard: React.FC<NoteCardProps> = ({
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity
-          onPress={() => onDelete(note.id, (note as any)._id)}
-          style={[styles.actionButton, styles.deleteButton, { zIndex: 2 }]}
-          disabled={isBusy}
-          activeOpacity={0.7}
-        >
-
-          <Trash2 size={16} color={COLORS.error} />
-          <Text style={[styles.actionLabel, styles.deleteLabel]}>Delete</Text>
-        </TouchableOpacity>
+        {/** Web fix: RNW sometimes swallows TouchableOpacity clicks in nested pressable cards */}
+        {typeof document !== "undefined" ? (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              e.preventDefault();
+              onDelete((note as any)._id ?? note.id, (note as any)._id);
+            }}
+            disabled={isBusy}
+            style={{
+              flex: 1,
+              minWidth: 70,
+              display: "flex",
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "center",
+              paddingTop: (SPACING.sm as any) ?? 8,
+              paddingBottom: (SPACING.sm as any) ?? 8,
+              borderRadius: (BORDER_RADIUS.md as any) ?? 10,
+              backgroundColor: "rgba(239, 68, 68, 0.08)",
+              gap: (SPACING.xs as any) ?? 6,
+              border: "none",
+              cursor: isBusy ? "not-allowed" : "pointer",
+              zIndex: 2,
+            }}
+          >
+            <Trash2 size={16} color={COLORS.error} />
+            <Text style={[styles.actionLabel, styles.deleteLabel]}>Delete</Text>
+          </button>
+        ) : (
+          <TouchableOpacity
+            onPress={(e: any) => {
+              e?.stopPropagation?.();
+              onDelete((note as any)._id ?? note.id, (note as any)._id);
+            }}
+            style={[styles.actionButton, styles.deleteButton, { zIndex: 2 }]}
+            disabled={isBusy}
+            activeOpacity={0.7}
+          >
+            <Trash2 size={16} color={COLORS.error} />
+            <Text style={[styles.actionLabel, styles.deleteLabel]}>Delete</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
     </Card>

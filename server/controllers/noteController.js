@@ -108,14 +108,20 @@ exports.getNotes = async (req, res) => {
       });
     }
 
-    // Important: /notes must show ONLY manually created study notes (exclude voice notes)
-    // Backend note type convention in this repo: type = "text-note" | "voice-note"
+    // Important: /notes must show ONLY manually created study notes.
+    // Backwards compatibility: older notes may not have `type` set at all.
+    // Exclude voice notes explicitly.
     const notes = await Note.find({
       userId: userId.toString(),
-      type: "text-note",
+      $or: [
+        { type: "text-note" },
+        { type: { $exists: false } },
+      ],
+      type: { $ne: "voice-note" },
     })
       .sort({ isPinned: -1, updatedAt: -1 })
       .lean();
+
 
 
     const formattedNotes = notes.map((note) => ({
