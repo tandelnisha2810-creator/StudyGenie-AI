@@ -97,7 +97,8 @@ function mergeTranscript(existing: string, chunk: string) {
 }
 
 async function ensureRecordingDirectory() {
-  const baseDirectory = `${FileSystem.documentDirectory ?? FileSystem.cacheDirectory ?? ''}voice-notes/`;
+  const baseDirectory = `${(FileSystem as any).documentDirectory ?? (FileSystem as any).cacheDirectory ?? ''}voice-notes/`;
+
   if (!baseDirectory) {
     return '';
   }
@@ -678,15 +679,16 @@ export function VoiceRecorder({
               icon={<Ionicons name="help-circle" size={18} color={COLORS.primary} />}
               style={styles.gridButton}
             />
-            <Button
-              title="Save as Study Note"
-              onPress={handleSave}
-              variant="primary"
-              loading={isSaving}
-              disabled={!canSave || !currentTranscript.trim() || !audioUri}
-              icon={<Ionicons name="cloud-upload" size={18} color={COLORS.white} />}
-              style={[styles.gridButton, styles.saveButton]}
-            />
+              <Button
+                title="Save as Study Note"
+                onPress={handleSave}
+                variant="primary"
+                loading={isSaving}
+                disabled={!canSave || !currentTranscript.trim() || !audioUri}
+                icon={<Ionicons name="cloud-upload" size={18} color={COLORS.white} />}
+                style={[styles.gridButton, styles.saveButton] as any}
+              />
+
           </View>
 
           {summary ? (

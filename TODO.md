@@ -1,38 +1,46 @@
- # TODO — Notes + Voice Notes Integration (Production)
+# TODO.md — Planner DB-driven conversion
 
-## Step 1 — Fix route mismatch & confirm save endpoints
-- [ ] Verify actual backend call used by “Save as Study Note” flow
+## 1) Repo understanding (done)
+- Located existing local-storage driven planner implementation.
+ - Identified files to update for backend + frontend.
 
-## Step 2 — Update Note schema to support voice notes
-- [x] Add `type`, `audioUri`, `quiz` fields to `server/models/Note.js`
+## 2) Backend scaffolding
+- [ ] Create MongoDB/Mongoose models:
+  - [ ] server/models/plannerTaskModel.js
+  - [ ] server/models/plannerReminderModel.js
+  - [ ] server/models/plannerTimerModel.js
+- [ ] Create controllers:
+  - [ ] server/controllers/plannerTaskController.js
+  - [ ] server/controllers/plannerReminderController.js
+  - [ ] server/controllers/plannerTimerController.js
+  - [ ] server/controllers/plannerStatsController.js
+- [ ] Create routes:
+  - [ ] server/routes/plannerTaskRoutes.js
+  - [ ] server/routes/plannerReminderRoutes.js
+  - [ ] server/routes/plannerTimerRoutes.js
+  - [ ] server/routes/plannerStatsRoutes.js
+- [ ] Mount routes in server/server.js under `/api/planner/*`
 
+## 3) Frontend API service
+- [ ] Replace client/services/plannerService.ts with API-driven implementation (no AsyncStorage as source of truth)
+- [ ] Implement required methods:
+  - [ ] getTasks/createTask/updateTask/deleteTask
+  - [ ] getReminders/createReminder/updateReminder/deleteReminder
+  - [ ] saveTimerSession
+  - [ ] getStats
 
-## Step 3 — Update Note controller to accept voice-note payload
-- [x] Update `createNote` / `updateNote` to persist `summary`, `quiz`, `audioUri`, `type`
+## 4) Frontend UI integration
+- [ ] Update client/app/(tabs)/study-planner.tsx:
+  - [ ] Fetch tasks/reminders/stats from backend
+  - [ ] Wire CRUD handlers to API methods
+  - [ ] Update UI counts based on stats response
+- [ ] Update StudyTimer.tsx to call saveTimerSession on complete
+- [ ] Update PomodoroTimer.tsx to call saveTimerSession for each completed focus session
 
+## 5) Testing
+- [x] Scaffold backend planner API (models/controllers/routes + mount)
+- [ ] Start server and verify planner endpoints
+- [ ] Confirm persistence after refresh/restart
+- [ ] Confirm timer sessions are stored and reflected in stats
 
-
-## Step 4 — Save voice note into main Notes collection
-- [x] Update `client/app/(tabs)/voice-notes.tsx` to call `createNote` on save
-
-- [x] Include transcript(content), summary, quiz, title, audioUri, type, tags
-
-
-## Step 5 — Prevent duplicate voice notes rendering
-- [x] Update `client/app/(tabs)/notes.tsx` to stop fetching `VoiceNote` collection
-
-
-## Step 6 — Update NoteCard UI for voice notes
-- [x] Detect `note.type === "voice-note"` and render transcript preview + quiz count
-
-
-- [x] Add play audio button for voice notes using `expo-av`
-
-
-
-## Step 7 — Delete behavior stays correct
-- [ ] Ensure Notes tab delete removes only from the main Note collection for voice notes
-
-## Step 8 — Playback + counters
-- [ ] Ensure createdAt/updatedAt mapping and notes count updates after save
 

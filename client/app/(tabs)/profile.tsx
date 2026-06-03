@@ -106,7 +106,7 @@ Joined{' '}
                   {new Date(userProfile.createdAt as any).toLocaleDateString("en-US", {
                     year: "numeric",
                     month: "long",
-                  })}
+                  }).replace(/'s/g, "\u2019s")}
                 </Text>
               )}
             </View>

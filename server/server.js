@@ -9,8 +9,14 @@ const noteRoutes = require('./routes/noteRoutes');
 const pdfRoutes = require('./routes/pdfRoutes');
 const voiceRoutes = require('./routes/voiceRoutes');
 
+const plannerTaskRoutes = require('./routes/plannerTaskRoutes');
+const plannerReminderRoutes = require('./routes/plannerReminderRoutes');
+const plannerTimerRoutes = require('./routes/plannerTimerRoutes');
+const plannerStatsRoutes = require('./routes/plannerStatsRoutes');
+
 dotenv.config();
 connectDB();
+
 
 const app = express();
 
@@ -31,8 +37,14 @@ app.use('/api/pdf', pdfRoutes);
 app.use('/api/voice', voiceRoutes);
 app.use('/api/voice-notes', voiceRoutes);
 
+// Planner (tasks/reminders/timers/stats)
+app.use('/api/planner/tasks', plannerTaskRoutes);
+app.use('/api/planner/reminders', plannerReminderRoutes);
+app.use('/api/planner/timers', plannerTimerRoutes);
+app.use('/api/planner/stats', plannerStatsRoutes);
 
 app.use((req, res) => {
+
   res.status(404).json({
     success: false,
     message: 'Route not found.',
