@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+ import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -221,11 +221,16 @@ export default function PdfAiScreen() {
     }
   };
 
+
+
+
   const handleDelete = async (id: string) => {
     console.log("DELETE FUNCTION CALLED");
     console.log("PDF ID passed to handler:", id);
 
-    // Web: Alert button callbacks are not firing. Use window.confirm instead.
+    const pdfId = id;
+
+    // Web: RN Alert button callbacks are unreliable; use window.confirm.
     if (Platform.OS === "web") {
       console.log("PDF DELETE: web confirm start");
       const confirmed = window.confirm("Are you sure you want to delete this PDF?");
@@ -234,24 +239,24 @@ export default function PdfAiScreen() {
         console.log("PDF DELETE: web confirm cancelled");
         return;
       }
-      await performDeletePdf(id);
+
+      void performDeletePdf(pdfId);
       return;
     }
 
+    // Native: keep Alert for mobile.
     console.log("PDF DELETE: native Alert.confirm start");
     Alert.alert("Delete PDF?", "This cannot be undone.", [
-      { text: "Cancel", style: "cancel" },
+      { text: "Cancel", style: "cancel", onPress: () => console.log("PDF DELETE: native Cancel pressed") },
       {
         text: "Delete",
         style: "destructive",
-        onPress: async () => {
-          console.log("PDF DELETE: native Delete pressed");
-          await performDeletePdf(id);
+        onPress: () => {
+          void performDeletePdf(pdfId);
         },
       },
     ]);
   };
-
   if (authLoading) {
     return (
       <SafeAreaView style={styles.container}>

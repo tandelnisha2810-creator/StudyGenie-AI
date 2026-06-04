@@ -251,7 +251,7 @@ export default function StudyPlannerScreen() {
         console.log("STEP 6 API RESPONSE", response);
 
         console.log("STEP 7 BEFORE STATE UPDATE");
-        setTasks((prev) => prev.filter((task) => task._id !== taskId && task.id !== taskId));
+        setTasks((prev) => prev.filter((task) => task.id !== taskId));
         console.log("STEP 8 UI UPDATED");
 
         await refresh();
