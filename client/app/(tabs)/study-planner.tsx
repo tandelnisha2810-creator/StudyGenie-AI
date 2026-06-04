@@ -228,41 +228,37 @@ export default function StudyPlannerScreen() {
 
 
   const handleDeleteTask = useCallback(
-    async (id: string) => {
-      console.log("DELETE TASK CLICKED", id);
+    async (taskId: string) => {
+      console.log("STEP 1 CLICK");
+      console.log("STEP 2 TASK ID", taskId);
 
-      if (!user?.uid) {
-        console.error("Delete failed: user not authenticated");
-        Alert.alert("Error", "User not authenticated");
-        return;
+      const confirmed =
+        typeof window !== "undefined" ? window.confirm("Delete this task?") : true;
+
+      console.log("STEP 3 BEFORE CONFIRM");
+      console.log("STEP 4 CONFIRM RESULT", confirmed);
+
+      if (!confirmed) return;
+
+      console.log("STEP 5 BEFORE API");
+      try {
+        console.log("STEP 5 BEFORE API");
+
+        console.log("SERVICE DELETE START", taskId);
+        const response = await deleteTask(user!.uid, taskId);
+        console.log("SERVICE DELETE SUCCESS", response);
+
+        console.log("STEP 6 API RESPONSE", response);
+
+        console.log("STEP 7 BEFORE STATE UPDATE");
+        setTasks((prev) => prev.filter((task) => task._id !== taskId && task.id !== taskId));
+        console.log("STEP 8 UI UPDATED");
+
+        await refresh();
+      } catch (error) {
+        console.error("DELETE TASK FAILED", error);
+        Alert.alert("Error", "Failed to delete task");
       }
-
-      Alert.alert(
-        "Delete Task",
-        "Are you sure you want to delete this task?",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                await deleteTask(user.uid, id);
-
-                // Remove immediately for instant feedback.
-                setTasks((prev) => prev.filter((t) => t.id !== id));
-
-                await refresh();
-                Alert.alert("✅ Task deleted successfully");
-                console.log("Task deleted successfully");
-              } catch (error) {
-                console.error("Delete failed:", error);
-                Alert.alert("❌ Failed to delete task");
-              }
-            },
-          },
-        ],
-      );
     },
     [refresh, user?.uid],
   );
@@ -333,38 +329,70 @@ export default function StudyPlannerScreen() {
   }, []);
 
   const handleDeleteExam = useCallback(
-    async (id: string) => {
+    async (examId: string) => {
+      console.log("DELETE REMINDER CLICKED");
+      console.log("DELETE REMINDER ID", examId);
+
       if (!user?.uid) {
         Alert.alert("Error", "User not authenticated");
         return;
       }
-      console.log("DELETE REMINDER:", id);
 
+      const performDelete = async () => {
+        console.log("STEP 5 BEFORE API");
+        console.log("DELETE REQUEST SENT");
 
+        try {
+          const response = await deleteReminder(user.uid, examId);
+          console.log("DELETE RESPONSE RECEIVED", response);
+          console.log("DOCUMENT DELETED");
+
+          setExamReminders((prev) => prev.filter((r) => r.id !== examId));
+          console.log("STATE UPDATED");
+
+          await refresh();
+          await scheduleAllFromState();
+          Alert.alert("Reminder deleted successfully");
+        } catch (e: any) {
+          console.error("DELETE REMINDER ERROR FULL", e, e?.message, e?.stack);
+          Alert.alert("Error", "Failed to delete reminder");
+        }
+      };
+
+      // WEB: Alert confirmation callbacks are unreliable/not firing.
+      // Use window.confirm to guarantee the API call.
+      if (Platform.OS === "web") {
+        const confirmed = window.confirm("Delete this exam reminder?");
+        console.log("STEP 4 CONFIRM RESULT", confirmed);
+        if (!confirmed) return;
+
+        console.log("STEP 1 CLICK");
+        console.log("STEP 2 ID", examId);
+        console.log("STEP 3 BEFORE CONFIRM");
+        await performDelete();
+        return;
+      }
+
+      // NATIVE: keep the existing Alert confirmation flow.
       Alert.alert("Delete exam reminder?", "This cannot be undone.", [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete",
           style: "destructive",
-          onPress: async () => {
-            try {
-              await deleteReminder(user.uid, id);
-              // instant UI update (required)
-              setExamReminders((prev) => prev.filter((r) => r.id !== id));
-
-              await refresh();
-              await scheduleAllFromState();
-              Alert.alert("Reminder deleted successfully");
-            } catch (e) {
-              console.error(e);
-              Alert.alert("Error", "Failed to delete reminder");
-            }
+          onPress: () => {
+            console.log("STEP 1 CLICK");
+            console.log("STEP 2 ID", examId);
+            console.log("STEP 3 BEFORE CONFIRM");
+            console.log("STEP 4 CONFIRM RESULT", true);
+            void performDelete();
           },
         },
       ]);
     },
     [refresh, scheduleAllFromState, user?.uid],
   );
+
+
 
 
   const showTimerCompleteNotification = useCallback(() => {

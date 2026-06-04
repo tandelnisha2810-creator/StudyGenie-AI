@@ -29,6 +29,7 @@ import {
   deleteNote as apiDeleteNote,
   summarizeNote as apiSummarizeNote,
 } from "@/services/noteService";
+import { Platform } from "react-native";
 import { NoteCard, NoteItem } from "@/components/NoteCard";
 import { NoteModal, NoteDraft } from "@/components/NoteModal";
 import { deleteVoiceNote } from "@/services/voiceService";
@@ -338,60 +339,61 @@ export default function NotesScreen() {
 
     // Voice notes are stored separately and are rendered inside this screen using NoteCard.
     // For now we delete by detecting "voice" by id presence (voice notes id differs from mongo note id set).
-    Alert.alert(
-      "Are you sure you want to delete this note?",
+    // NOTE: RN Alert button callbacks are unreliable on web (they often block execution).
+    // Only adjust the deletion confirmation logic.
+    const confirmedAndDelete = async () => {
+      console.log("DELETE CONFIRMED: before UI update", { safeId });
+      setIsBusyId(safeId);
 
-      "This action cannot be undone.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async () => {
-            console.log("🗑️ handleDeleteNote - deleting note id:", { id: safeId, type: typeof safeId });
+      // Optimistic update: remove immediately from UI and local lists
+      console.log("DELETE OPTIMISTIC REMOVE START", { safeId });
+      setNotes((prev) => prev.filter((note) => note.id !== safeId && (note as any)._id !== safeId));
+      setFilteredNotes((prev) =>
+        prev.filter((note) => note.id !== safeId && (note as any)._id !== safeId)
+      );
+      console.log("DELETE OPTIMISTIC REMOVE DONE", { safeId });
 
-            setIsBusyId(safeId);
+      try {
+        console.log("DELETE BEFORE API CALL", { safeId });
+        const resp = await apiDeleteNote(safeId);
+        console.log("DELETE RESPONSE", resp);
+        console.log("DELETE AFTER API CALL", { safeId });
+        Alert.alert("Success", "Note deleted successfully");
+        loadNotes();
+        console.log("DELETE SUCCESS", { safeId });
+      } catch (error) {
+        console.error("DELETE ERROR", error);
+        Alert.alert("Error", "Failed to delete note");
+        await loadNotes();
+      } finally {
+        console.log("DELETE FINALLY: setIsBusyId(null)");
+        setIsBusyId(null);
+      }
+    };
 
-            // Optimistic update: remove immediately from UI and local lists
-            console.log("🗑️ Optimistically removing from UI:", { id: safeId });
-            setNotes((prev) =>
-              prev.filter(
-                (note) => note.id !== safeId && (note as any)._id !== safeId
-              )
-            );
-            setFilteredNotes((prev) =>
-              prev.filter(
-                (note) => note.id !== safeId && (note as any)._id !== safeId
-              )
-            );
+    if (Platform.OS === "web") {
+      console.log("DELETE CONFIRM: using window.confirm (web)");
+      const confirmed = window.confirm("Are you sure you want to delete this note?");
+      console.log("DELETE CONFIRM RESULT (web)", confirmed);
+      if (!confirmed) {
+        console.log("DELETE CANCELLED (web)");
+        return;
+      }
+      await confirmedAndDelete();
+      return;
+    }
 
-
-
-            try {
-              console.log("Calling delete API...");
-              // On the /notes tab, we ONLY delete study (text/manual) notes.
-              // Voice notes are managed by /voice-notes.
-              const resp = await apiDeleteNote(safeId);
-              console.log("✅ Delete success");
-              console.log("✅ apiDeleteNote returned:", resp);
-              Alert.alert("Success", "Note deleted successfully");
-
-
-              // Refresh in background to keep ordering/counters consistent.
-              loadNotes();
-
-            } catch (error) {
-
-              console.error("❌ handleDeleteNote error:", error);
-              Alert.alert("Error", "Failed to delete note");
-              await loadNotes();
-            } finally {
-              setIsBusyId(null);
-            }
-          },
+    Alert.alert("Are you sure you want to delete this note?", "This action cannot be undone.", [
+      { text: "Cancel", style: "cancel", onPress: () => console.log("DELETE CANCELLED (native)") },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          console.log("DELETE PRESSED (native)");
+          await confirmedAndDelete();
         },
-      ]
-    );
+      },
+    ]);
   };
 
   const handleTogglePin = async (note: NoteItem) => {

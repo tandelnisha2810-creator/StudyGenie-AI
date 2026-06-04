@@ -184,27 +184,69 @@ export default function PdfAiScreen() {
     }
   };
 
+  const performDeletePdf = async (pdfId: string) => {
+    console.log("PDF DELETE: performDeletePdf start", { pdfId });
+
+    if (!pdfId) {
+      console.error("PDF DELETE: NO pdfId");
+      return;
+    }
+
+    try {
+      console.log("PDF DELETE: setIsBusyId START", pdfId);
+      setIsBusyId(pdfId);
+      console.log("PDF DELETE: setIsBusyId DONE", pdfId);
+
+      console.log("PDF DELETE: optimistic UI remove START", pdfId);
+      setItems((prev) => prev.filter((x) => x.id !== pdfId));
+      console.log("PDF DELETE: optimistic UI remove DONE", pdfId);
+
+      console.log("PDF DELETE: BEFORE API CALL", pdfId);
+      const response = await deletePdfNote(pdfId);
+      console.log("PDF DELETE: AFTER API CALL", { pdfId, response });
+
+      console.log("PDF DELETE: BEFORE load() refresh");
+      await load();
+      console.log("PDF DELETE: AFTER load() refresh");
+
+      Alert.alert("Deleted", "PDF removed successfully.");
+      console.log("PDF DELETE: SUCCESS");
+    } catch (e) {
+      console.error("PDF DELETE: ERROR", e);
+      Alert.alert("Error", "Failed to delete PDF.");
+      await load();
+    } finally {
+      console.log("PDF DELETE: finally setIsBusyId(null)");
+      setIsBusyId(null);
+    }
+  };
+
   const handleDelete = async (id: string) => {
+    console.log("DELETE FUNCTION CALLED");
+    console.log("PDF ID passed to handler:", id);
+
+    // Web: Alert button callbacks are not firing. Use window.confirm instead.
+    if (Platform.OS === "web") {
+      console.log("PDF DELETE: web confirm start");
+      const confirmed = window.confirm("Are you sure you want to delete this PDF?");
+      console.log("PDF DELETE: web confirm result", confirmed);
+      if (!confirmed) {
+        console.log("PDF DELETE: web confirm cancelled");
+        return;
+      }
+      await performDeletePdf(id);
+      return;
+    }
+
+    console.log("PDF DELETE: native Alert.confirm start");
     Alert.alert("Delete PDF?", "This cannot be undone.", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
         style: "destructive",
         onPress: async () => {
-          try {
-            setIsBusyId(id);
-            // Optimistic
-            setItems((prev) => prev.filter((x) => x.id !== id));
-            await deletePdfNote(id);
-            await load();
-            Alert.alert("Deleted", "PDF removed successfully.");
-          } catch (e) {
-            console.error(e);
-            Alert.alert("Error", "Failed to delete PDF.");
-            await load();
-          } finally {
-            setIsBusyId(null);
-          }
+          console.log("PDF DELETE: native Delete pressed");
+          await performDeletePdf(id);
         },
       },
     ]);
@@ -361,7 +403,10 @@ export default function PdfAiScreen() {
                     item={item}
                     isBusy={isBusyId === item.id}
                     onViewDetails={() => router.push({ pathname: "/pdf-ai/[id]", params: { id: item.id } })}
-                    onDelete={() => handleDelete(item.id)}
+                    onDelete={() => {
+                      console.log("DELETE BUTTON CLICKED", item);
+                      handleDelete(item.id);
+                    }}
                   />
                 ))}
               </View>

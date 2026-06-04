@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, RefreshControl, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { AuthGuard } from '@/components/AuthGuard';
@@ -154,32 +154,75 @@ export default function VoiceNotesScreen() {
 
   const handleDelete = useCallback(
     async (noteId: string) => {
+      console.log('STEP 1 CLICK');
+      console.log('STEP 2 ID', noteId);
+
       if (!noteId) {
+        console.error('VOICE DELETE: missing noteId');
         Alert.alert('Error', 'Invalid voice note id.');
         return;
       }
 
+      // Web: Alert button callbacks are unreliable in RN Web/Expo.
+      if (Platform.OS === 'web') {
+        console.log('STEP 3 BEFORE CONFIRM');
+        const confirmed = window.confirm('Delete voice note?');
+        console.log('STEP 4 CONFIRM RESULT', confirmed);
+
+        if (!confirmed) {
+          console.log('USER CANCELLED');
+          return;
+        }
+
+        try {
+          console.log('STEP 5 BEFORE API');
+          const result = await deleteVoiceNote(noteId, token);
+          console.log('STEP 6 AFTER API', result);
+
+          console.log('STEP 7 BEFORE UI UPDATE');
+          setNotes((prev) => prev.filter((item) => getNoteId(item) !== noteId));
+          console.log('STEP 8 DONE');
+
+          await loadNotes();
+          Alert.alert('Deleted', 'Voice note deleted successfully');
+        } catch (error) {
+          console.error('VOICE DELETE ERROR (web)', error);
+          Alert.alert('Error', 'Failed to delete voice note.');
+          void loadNotes();
+        }
+
+        return;
+      }
+
+      // Native: keep Alert but still add step logs.
       Alert.alert('Delete voice note?', 'This action cannot be undone.', [
-        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+          onPress: () => console.log('USER CANCELLED (native)'),
+        },
         {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
             try {
+              console.log('STEP 3 BEFORE CONFIRM');
+              console.log('STEP 4 CONFIRM RESULT', true);
+
               setBusyId(noteId);
 
-              // Stop audio playback (card component unloads on unmount, but ensure UX immediately)
-              setNotes((current) => current.filter((note) => getNoteId(note) !== noteId));
+              console.log('STEP 5 BEFORE API');
+              const result = await deleteVoiceNote(noteId, token);
+              console.log('STEP 6 AFTER API', result);
 
-              await deleteVoiceNote(noteId, token);
+              console.log('STEP 7 BEFORE UI UPDATE');
+              setNotes((prev) => prev.filter((item) => getNoteId(item) !== noteId));
+              console.log('STEP 8 DONE');
 
-              // Refresh to ensure recent transcript + any shared counters are accurate
-              // (local optimistic update already happened, so this is mostly for sync)
               await loadNotes();
-
               Alert.alert('Deleted', 'Voice note deleted successfully');
             } catch (error) {
-              console.error('handleDelete error', error);
+              console.error('VOICE DELETE ERROR (native)', error);
               Alert.alert('Error', 'Failed to delete voice note.');
               void loadNotes();
             } finally {

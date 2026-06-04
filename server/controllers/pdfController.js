@@ -205,12 +205,17 @@ exports.getPdfNoteById = async (req, res) => {
 exports.deletePdfNote = async (req, res) => {
   try {
     const { id } = req.params;
+    console.log("DELETE REQUEST RECEIVED (pdf)");
+    console.log("ID param:", id);
+
     if (!id) return res.status(400).json({ success: false, error: "Missing id" });
 
     const doc = await PdfNote.findByIdAndDelete(id);
+    console.log("findByIdAndDelete result:", !!doc);
+
     if (!doc) return res.status(404).json({ success: false, error: "PDF not found" });
 
-    return res.status(200).json({ success: true });
+    return res.status(200).json({ success: true, deletedId: id });
   } catch (error) {
     console.error("deletePdfNote error:", error);
     return res.status(500).json({ success: false, error: "Unable to delete PDF" });

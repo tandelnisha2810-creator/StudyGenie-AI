@@ -49,9 +49,20 @@ export const getPdfNotes = async (userId) => {
 };
 
 export const deletePdfNote = async (id) => {
-  const resp = await axiosInstance.delete(`/${id}`);
-  const data = safeData(resp);
-  return data.success ?? true;
+  console.log("deletePdfNote called with id:", id);
+  const url = `/${id}`;
+  console.log("CALLING DELETE API (pdf):", `${API_BASE_URL}${url}`);
+
+  try {
+    const resp = await axiosInstance.delete(url);
+    console.log("deletePdfNote response status:", resp?.status);
+    const data = safeData(resp);
+    console.log("deletePdfNote response data:", data);
+    return data.success ?? true;
+  } catch (err) {
+    console.error("deletePdfNote error:", err);
+    throw err;
+  }
 };
 
 export const getPdfNoteById = async (id) => {
