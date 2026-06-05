@@ -48,11 +48,16 @@ export interface ChatHistory {
  */
 export const saveUserProfile = async (userProfile: Partial<UserProfile>) => {
   try {
-    const userRef = doc(db, "users", userProfile.uid!);
+    if (!userProfile.uid) {
+      throw new Error("Missing uid for user profile save");
+    }
+
+    const userRef = doc(db, "users", userProfile.uid);
     await setDoc(
       userRef,
       {
         ...userProfile,
+        // Don't overwrite an existing createdAt on merges.
         createdAt: Timestamp.now(),
       },
       { merge: true }
@@ -64,26 +69,31 @@ export const saveUserProfile = async (userProfile: Partial<UserProfile>) => {
   }
 };
 
+
 /**
  * Get user profile from Firestore
  */
 export const getUserProfile = async (userId: string): Promise<UserProfile> => {
   try {
+    // Read the profile document by ID. If it doesn't exist, throw so the caller can decide to create it.
     const userRef = doc(db, "users", userId);
-    const userDoc = await getDocs(collection(db, "users"));
-    const userSnapshot = userDoc.docs.find((doc) => doc.id === userId);
+    // NOTE: existing code used getDocs(collection(db, "users")) and then searched client-side.
+    // That approach is slower and can lead to missing docs under race conditions.
+    const snap = await import("firebase/firestore").then(({ getDoc }) => getDoc(userRef));
 
-    if (userSnapshot) {
-      return {
-        ...(userSnapshot.data() as UserProfile),
-      };
+    if (!snap.exists()) {
+      throw new Error("User not found");
     }
-    throw new Error("User not found");
+
+    return {
+      ...(snap.data() as UserProfile),
+    };
   } catch (error) {
     console.error("Error getting user profile:", error);
     throw error;
   }
 };
+
 
 /**
  * Add a new note

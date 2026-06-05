@@ -78,13 +78,7 @@ export default function PdfDetailsScreen() {
               <Text style={styles.headerTitle}>PDF AI Result</Text>
               <Text style={styles.headerSubtitle}>{pdf?.fileName || "Loading..."}</Text>
             </View>
-            <Button
-              title="Delete"
-              variant="outline"
-              size="small"
-              style={{ minWidth: 92 }}
-              onPress={handleDelete}
-            />
+
           </View>
 
           {loading ? (
