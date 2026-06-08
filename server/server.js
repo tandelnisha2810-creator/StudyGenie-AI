@@ -1,7 +1,11 @@
 const path = require('path');
+const dotenv = require('dotenv');
+
+// CRITICAL: Load env vars BEFORE importing any modules that depend on them
+dotenv.config();
+
 const express = require('express');
 const cors = require('cors');
-const dotenv = require('dotenv');
 
 const connectDB = require('./config/db');
 const chatRoutes = require('./routes/chatRoutes');
@@ -13,9 +17,10 @@ const plannerTaskRoutes = require('./routes/plannerTaskRoutes');
 const plannerReminderRoutes = require('./routes/plannerReminderRoutes');
 const plannerTimerRoutes = require('./routes/plannerTimerRoutes');
 const plannerStatsRoutes = require('./routes/plannerStatsRoutes');
-
-dotenv.config();
+const userProfileRoutes = require('./routes/userProfileRoutes');
+const authMiddleware = require('./middleware/authMiddleware');
 connectDB();
+
 
 
 const app = express();
@@ -43,6 +48,17 @@ app.use('/api/planner/reminders', plannerReminderRoutes);
 app.use('/api/planner/timers', plannerTimerRoutes);
 app.use('/api/planner/stats', plannerStatsRoutes);
 
+// Profile (MongoDB)
+app.use('/api/profile', (req, res, next) => {
+  console.log('[PROFILE ROUTE] HEADERS:', {
+    authorization: req.headers.authorization,
+    'content-type': req.headers['content-type'],
+  });
+  console.log('[PROFILE ROUTE] BODY BEFORE AUTH:', req.body);
+  next();
+}, authMiddleware, userProfileRoutes);
+
+
 app.use((req, res) => {
 
   res.status(404).json({
@@ -53,9 +69,13 @@ app.use((req, res) => {
 
 app.use((error, req, res, next) => {
   console.error('Unhandled server error:', error);
-  res.status(500).json({
+
+  const statusCode = error?.statusCode || error?.status || 500;
+  const message = error?.message || 'Internal server error.';
+
+  res.status(statusCode).json({
     success: false,
-    message: 'Internal server error.',
+    message,
   });
 });
 
