@@ -1,8 +1,3 @@
-/**
- * Profile Screen
- * Dynamic user profile + logout + statistics dashboard
- */
-
 import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
@@ -15,58 +10,32 @@ import {
   Image,
   TouchableOpacity,
   TextInput,
+  Platform,
 } from "react-native";
+import * as ImagePicker from 'expo-image-picker';
 import { useRouter } from "expo-router";
 import { signOut } from "firebase/auth";
-import {
-  LogOut,
-  Edit2,
-  Settings,
-  BookMarked,
-  Award,
-  Clock,
-  Mail,
-  Calendar,
-  Mic,
-  FileText,
-  Brain,
-  ClipboardList,
-  Bell,
-} from "lucide-react-native";
+import { LogOut, Settings, Trash2, Mail, Calendar, Moon, Bell } from "lucide-react-native";
 
 import { useAuth } from "@/hooks/useAuth";
 import { AuthGuard } from "@/components/AuthGuard";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
+
 import { COLORS, TEXT_COLORS } from "../../utils/colors";
 import { SPACING, BORDER_RADIUS } from "../../utils/spacing";
 import { TYPOGRAPHY } from "../../utils/typography";
 import { auth } from "@/firebase";
-
-import {
-  getUserProfile,
-  saveUserProfile,
-} from "@/services/firestore";
 import { clearAuthStorage } from "@/utils/authStorage";
 
-import { getNotes } from "@/services/noteService";
-import { getPdfNotes } from "@/services/pdfService";
-import { getVoiceNotes } from "@/services/voiceService";
 import {
-  getTasks,
-  getReminders,
-  getStats,
-} from "@/services/plannerService";
+  getProfile,
+  updateProfile,
+  updatePreferences,
+  deleteProfile as deleteProfileApi,
+} from "@/services/profileService";
+import { uploadProfilePhoto } from "@/services/profileService";
 
-
-// Reuse project storage helpers (AsyncStorage on native, localStorage on web)
-import {
-  getStoredAuthToken,
-  TOKEN_KEY,
-  USER_KEY,
-  saveAuthToken,
-  saveAuthSession,
-} from "@/utils/authStorage";
 
 type Preferences = {
   darkMode: boolean;
@@ -74,90 +43,15 @@ type Preferences = {
   studyReminders: boolean;
 };
 
-const PREF_KEY = "profile.preferences.v1";
-
-function safeParseBool(value: unknown, fallback: boolean) {
-  return typeof value === "boolean" ? value : fallback;
-}
-
-function defaultPrefs(): Preferences {
-  return {
-    darkMode: false,
-    notifications: true,
-    studyReminders: true,
-  };
-}
-
-async function loadPrefs(): Promise<Preferences> {
-  try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      const raw = window.localStorage.getItem(PREF_KEY);
-      if (!raw) return defaultPrefs();
-      const parsed = JSON.parse(raw);
-      return {
-        darkMode: safeParseBool(parsed?.darkMode, defaultPrefs().darkMode),
-        notifications: safeParseBool(
-          parsed?.notifications,
-          defaultPrefs().notifications
-        ),
-        studyReminders: safeParseBool(
-          parsed?.studyReminders,
-          defaultPrefs().studyReminders
-        ),
-      };
-    }
-
-
-    // Native path uses AsyncStorage abstraction from authStorage
-    const storageMod = await import("@/utils/authStorage");
-    const storage: any = (storageMod as any).default;
-    if (storage?.getItem) {
-      const raw = await storage.getItem(PREF_KEY);
-      if (!raw) return defaultPrefs();
-      const parsed = JSON.parse(raw);
-      return {
-        darkMode: safeParseBool(parsed?.darkMode, defaultPrefs().darkMode),
-        notifications: safeParseBool(
-          parsed?.notifications,
-          defaultPrefs().notifications
-        ),
-        studyReminders: safeParseBool(
-          parsed?.studyReminders,
-          defaultPrefs().studyReminders
-        ),
-      };
-    }
-
-    // If storage abstraction doesn't provide a string value, fall back safely.
-    return defaultPrefs();
-  } catch {
-    return defaultPrefs();
-  }
-}
-
-async function savePrefs(prefs: Preferences) {
-  try {
-    if (typeof window !== "undefined" && window.localStorage) {
-      window.localStorage.setItem(PREF_KEY, JSON.stringify(prefs));
-      return;
-    }
-
-    // Native storage via AsyncStorage helper is already abstracted in authStorage
-    const storageMod = await import("@/utils/authStorage");
-    const storage = (storageMod as any).default;
-    // fallback: use setItem if available
-    if (storage?.setItem) {
-      await storage.setItem(PREF_KEY, JSON.stringify(prefs));
-      return;
-    }
-
-    if ((storageMod as any).saveAuthSession) {
-      // no-op (should not happen)
-    }
-  } catch {
-    // ignore
-  }
-}
+type MongoProfile = {
+  userId: string;
+  fullName: string;
+  email: string;
+  profileImage: string;
+  preferences?: Preferences;
+  createdAt?: string;
+  updatedAt?: string;
+};
 
 function initialsFromName(name?: string | null) {
   const value = (name || "").trim();
@@ -167,691 +61,15 @@ function initialsFromName(name?: string | null) {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function formatStudyHoursFromMinutes(totalMinutes: number) {
-  const hours = totalMinutes / 60;
-  return hours.toFixed(hours % 1 === 0 ? 0 : 1) + "h";
-}
-
-export default function ProfileScreen() {
-  const router = useRouter();
-  const { user, loading: authLoading, error: authError } = useAuth();
-
-  const [prefs, setPrefsState] = useState<Preferences>(defaultPrefs());
-  const [prefsLoading, setPrefsLoading] = useState(true);
-  const [prefsError, setPrefsError] = useState<string | null>(null);
-
-  // Dashboard queries
-  const [loadingDashboard, setLoadingDashboard] = useState(false);
-  const [dashboardError, setDashboardError] = useState<string | null>(null);
-
-  const [notesCount, setNotesCount] = useState<number>(0);
-  const [quizCount, setQuizCount] = useState<number>(0);
-  const [pdfCount, setPdfCount] = useState<number>(0);
-  const [voiceCount, setVoiceCount] = useState<number>(0);
-  const [tasksCount, setTasksCount] = useState<number>(0);
-  const [remindersCount, setRemindersCount] = useState<number>(0);
-  const [studyHoursMinutes, setStudyHoursMinutes] = useState<number>(0);
-
-  const [recentNotes, setRecentNotes] = useState<any[]>([]);
-  const [recentPdfs, setRecentPdfs] = useState<any[]>([]);
-  const [recentVoiceNotes, setRecentVoiceNotes] = useState<any[]>([]);
-  const [recentQuizzes, setRecentQuizzes] = useState<any[]>([]);
-  const [recentTasks, setRecentTasks] = useState<any[]>([]);
-  const [recentReminders, setRecentReminders] = useState<any[]>([]);
-
-  // Profile editing
-  const [profileLoading, setProfileLoading] = useState(false);
-  const [profileError, setProfileError] = useState<string | null>(null);
-  const [draftName, setDraftName] = useState<string>("");
-  const [draftPhotoUrl, setDraftPhotoUrl] = useState<string>("");
-
-  const displayName = useMemo(() => {
-    return draftName || user?.displayName || "User";
-  }, [draftName, user?.displayName]);
-
-  const userProfileCreatedAtText = "—";
-
-
-  const joinedJoinedDate = useMemo(() => {
-    // Keep existing behavior: only show date when available
-    return null;
-  }, []);
-
-  // Keep cached user profile fields in sync
-  useEffect(() => {
-    let mounted = true;
-    const run = async () => {
-      if (!user?.uid) return;
-      setProfileLoading(true);
-      setProfileError(null);
-      try {
-        const u = await getUserProfile(user.uid);
-        if (!mounted) return;
-        setDraftName(u?.name || user?.displayName || "");
-        setDraftPhotoUrl(u?.photoURL || user?.photoURL || "");
-      } catch (e: any) {
-        // Don't block; user still sees dashboard
-        if (!mounted) return;
-        setProfileError(e?.message || "Failed to load profile");
-      } finally {
-        if (!mounted) return;
-        setProfileLoading(false);
-      }
-    };
-    run();
-    return () => {
-      mounted = false;
-    };
-  }, [user?.uid]);
-
-  useEffect(() => {
-    let mounted = true;
-    const run = async () => {
-      setPrefsLoading(true);
-      setPrefsError(null);
-      try {
-        const loaded = await loadPrefs();
-        if (!mounted) return;
-        setPrefsState(loaded);
-      } catch (e: any) {
-        if (!mounted) return;
-        setPrefsError(e?.message || "Failed to load preferences");
-      } finally {
-        if (!mounted) return;
-        setPrefsLoading(false);
-      }
-    };
-    run();
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  const refreshDashboard = async () => {
-    if (!user?.uid) return;
-
-    setLoadingDashboard(true);
-    setDashboardError(null);
-
-    try {
-      const userId = user.uid;
-
-      // Notes
-      const notes = await getNotes(userId);
-      const safeNotes = Array.isArray(notes) ? notes : [];
-      setNotesCount(safeNotes.length);
-      setRecentNotes(safeNotes.slice(0, 5));
-
-      // PDFs (summaries)
-      const pdfNotes = await getPdfNotes(userId);
-      const safePdfs = Array.isArray(pdfNotes) ? pdfNotes : [];
-      setPdfCount(safePdfs.length);
-      setRecentPdfs(safePdfs.slice(0, 5));
-
-      // Voice notes
-      // voiceService.getVoiceNotes signature expects token?: string, userId?: string
-      const voice = await getVoiceNotes(undefined, userId);
-      const safeVoice = Array.isArray(voice) ? voice : [];
-      setVoiceCount(safeVoice.length);
-      setRecentVoiceNotes(safeVoice.slice(0, 5));
-
-      // Quizzes
-      // Existing system stores quizzes as embedded objects in notes/voice notes.
-      // Aggregate quiz counts from both sources.
-      const quizFromNotes = safeNotes.reduce((acc: number, n: any) => {
-        const q = n?.quiz;
-        if (Array.isArray(q)) return acc + q.length;
-        return acc;
-      }, 0);
-
-      const quizFromVoice = safeVoice.reduce((acc: number, vn: any) => {
-        const q = vn?.quiz;
-        if (Array.isArray(q)) return acc + q.length;
-        return acc;
-      }, 0);
-
-      const totalQuiz = quizFromNotes + quizFromVoice;
-      setQuizCount(totalQuiz);
-
-      // Recent quizzes: take first quiz item from any notes/voice notes
-      const quizItems: any[] = [];
-      for (const n of safeNotes) {
-        if (Array.isArray(n?.quiz)) {
-          for (const qi of n.quiz) quizItems.push({ ...qi, source: "note" });
-        }
-      }
-      for (const vn of safeVoice) {
-        if (Array.isArray(vn?.quiz)) {
-          for (const qi of vn.quiz) quizItems.push({ ...qi, source: "voice" });
-        }
-      }
-      setRecentQuizzes(quizItems.slice(0, 5));
-
-      // Planner stats: tasks + reminders + total study hours.
-      const [tasks, reminders, stats] = await Promise.all([
-        getTasks(userId),
-        getReminders(userId),
-        getStats(userId),
-      ]);
-
-      const safeTasks = Array.isArray(tasks) ? tasks : [];
-      const safeReminders = Array.isArray(reminders) ? reminders : [];
-
-      setTasksCount(safeTasks.length);
-      setRemindersCount(safeReminders.length);
-      setRecentTasks(safeTasks.slice(0, 5));
-      setRecentReminders(safeReminders.slice(0, 5));
-
-      // Study hours:
-      // plannerService.getStats returns completedPomodoroSessions but not minutes total.
-      // We'll compute study minutes by loading timer history indirectly is not available via plannerService in current architecture.
-      // Fallback: use completedPomodoroSessions * 25 minutes.
-      // Keep it derived from server-provided stats.
-      const completedSessions = stats?.completedPomodoroSessions ?? 0;
-      const assumedMinutesPerSession = 25;
-      setStudyHoursMinutes(completedSessions * assumedMinutesPerSession);
-    } catch (e: any) {
-      setDashboardError(e?.message || "Failed to load dashboard data");
-    } finally {
-      setLoadingDashboard(false);
-    }
-  };
-
-  useEffect(() => {
-    refreshDashboard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.uid]);
-
-  const onSaveProfile = async () => {
-    if (!user?.uid) {
-      Alert.alert("Not signed in", "Please sign in again to save your profile.");
-      return;
-    }
-
-    setProfileError(null);
-    setProfileLoading(true);
-
-    try {
-      // Validate photo URL: if empty, treat as unset.
-      const trimmedPhoto = (draftPhotoUrl || "").trim();
-      const photoURL = trimmedPhoto ? trimmedPhoto : undefined;
-
-      await saveUserProfile({
-        uid: user.uid,
-        name: draftName,
-        photoURL,
-      });
-
-      // Refresh UI immediately (dashboard + profile fields)
-      await refreshDashboard();
-
-      try {
-        const u = await getUserProfile(user.uid);
-        setDraftName(u?.name || user?.displayName || "");
-        setDraftPhotoUrl(u?.photoURL || user?.photoURL || "");
-      } catch (e: any) {
-        // If the doc still isn't visible immediately, don't leave UI stuck.
-        // The save already succeeded, so just keep draft values.
-        console.warn("Profile saved, but profile doc could not be reloaded yet:", e);
-      }
-
-      Alert.alert("Profile updated", "Your profile changes have been saved.");
-    } catch (e: any) {
-      setProfileError(e?.message || "Failed to update profile");
-    } finally {
-      // Guarantee spinner reset.
-      setProfileLoading(false);
-    }
-  };
-
-
-  const onSavePrefs = async (next: Preferences) => {
-    setPrefsState(next);
-    try {
-      await savePrefs(next);
-    } catch {
-      // ignore
-    }
-  };
-
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-
-  const handleLogout = async () => {
-    if (isLoggingOut) return;
-
-    Alert.alert("Logout", "Are you sure you want to logout?", [
-
-      { text: "Cancel", onPress: () => {} },
-      {
-        text: "Logout",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            setIsLoggingOut(true);
-
-            // Securely clear session + cached user profile
-            await signOut(auth);
-            await clearAuthStorage();
-
-            // Clear any cached preferences/user state
-            setDraftName("");
-            setDraftPhotoUrl("");
-
-            // Redirect
-            router.replace("/auth" as any);
-          } catch (e: any) {
-            Alert.alert("Error", e?.message || "Failed to logout");
-          } finally {
-            setIsLoggingOut(false);
-          }
-        },
-      },
-    ]);
-  };
-
-  if (authLoading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-      </SafeAreaView>
-    );
+function formatJoinedDate(iso?: string) {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "—";
+    return d.toLocaleDateString();
+  } catch {
+    return "—";
   }
-
-  if (!user && authError) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <Text style={{ color: COLORS.error, ...TYPOGRAPHY.body }}>{authError}</Text>
-      </SafeAreaView>
-    );
-  }
-
-  return (
-    <AuthGuard>
-      <SafeAreaView style={styles.container}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-        >
-          {/* Profile Header */}
-          <View style={styles.profileHeader}>
-            <View style={styles.avatarContainer}>
-              {draftPhotoUrl || user?.photoURL ? (
-                <Image
-                  source={{ uri: draftPhotoUrl || user?.photoURL || "" }}
-                  style={styles.profileImage}
-                />
-              ) : (
-                <View style={styles.profileImagePlaceholder}>
-                  <Text style={styles.placeholderText}>
-                    {initialsFromName(draftName || user?.displayName)}
-                  </Text>
-                </View>
-              )}
-            </View>
-
-            <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{user?.displayName || draftName || "User"}</Text>
-              <Text style={styles.profileEmail}>{user?.email}</Text>
-
-              <Text style={styles.joinedDate}>
-                Joined{"\n"}
-                {"—"}
-              </Text>
-            </View>
-          </View>
-
-          {/* Skeleton stats while loading */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Your Stats</Text>
-
-            <View style={styles.statsGrid}>
-              <Card style={styles.statCard}>
-                <View style={styles.statIcon}>
-                  <BookMarked size={24} color={COLORS.primary} />
-                </View>
-                {loadingDashboard ? (
-                  <Text style={styles.statValue}>...</Text>
-                ) : (
-                  <Text style={styles.statValue}>{notesCount}</Text>
-                )}
-                <Text style={styles.statLabel}>Notes</Text>
-              </Card>
-
-              <Card style={styles.statCard}>
-                <View style={styles.statIcon}>
-                  <Award size={24} color={COLORS.secondary} />
-                </View>
-                {loadingDashboard ? (
-                  <Text style={styles.statValue}>...</Text>
-                ) : (
-                  <Text style={styles.statValue}>{quizCount}</Text>
-                )}
-                <Text style={styles.statLabel}>Quizzes</Text>
-              </Card>
-
-              <Card style={styles.statCard}>
-                <View style={styles.statIcon}>
-                  <Clock size={24} color="#10B981" />
-                </View>
-                {loadingDashboard ? (
-                  <Text style={styles.statValue}>...</Text>
-                ) : (
-                  <Text style={styles.statValue}>{formatStudyHoursFromMinutes(studyHoursMinutes)}</Text>
-                )}
-                <Text style={styles.statLabel}>Study Hours</Text>
-              </Card>
-            </View>
-
-            <View style={styles.statsGrid}>
-              <Card style={styles.statCard}>
-                <View style={styles.statIcon}>
-                  <FileText size={24} color={COLORS.primary} />
-                </View>
-                {loadingDashboard ? (
-                  <Text style={styles.statValue}>...</Text>
-                ) : (
-                  <Text style={styles.statValue}>{pdfCount}</Text>
-                )}
-                <Text style={styles.statLabel}>PDF Summaries</Text>
-              </Card>
-
-              <Card style={styles.statCard}>
-                <View style={styles.statIcon}>
-                  <Mic size={24} color={COLORS.secondary} />
-                </View>
-                {loadingDashboard ? (
-                  <Text style={styles.statValue}>...</Text>
-                ) : (
-                  <Text style={styles.statValue}>{voiceCount}</Text>
-                )}
-                <Text style={styles.statLabel}>Voice Notes</Text>
-              </Card>
-
-              <Card style={styles.statCard}>
-                <View style={styles.statIcon}>
-                  <ClipboardList size={24} color="#F97316" />
-                </View>
-                {loadingDashboard ? (
-                  <Text style={styles.statValue}>...</Text>
-                ) : (
-                  <Text style={styles.statValue}>{tasksCount}</Text>
-                )}
-                <Text style={styles.statLabel}>Study Tasks</Text>
-              </Card>
-
-              <Card style={styles.statCard}>
-                <View style={styles.statIcon}>
-                  <Bell size={24} color="#7C3AED" />
-                </View>
-                {loadingDashboard ? (
-                  <Text style={styles.statValue}>...</Text>
-                ) : (
-                  <Text style={styles.statValue}>{remindersCount}</Text>
-                )}
-                <Text style={styles.statLabel}>Reminders</Text>
-              </Card>
-            </View>
-
-            {dashboardError ? (
-              <Text style={{ marginTop: SPACING.md, color: COLORS.error, ...TYPOGRAPHY.body }}>
-                {dashboardError}
-              </Text>
-            ) : null}
-
-            {!dashboardError && !loadingDashboard &&
-            notesCount === 0 &&
-            pdfCount === 0 &&
-            voiceCount === 0 &&
-            quizCount === 0 &&
-            tasksCount === 0 &&
-            remindersCount === 0 ? (
-              <Text style={{ marginTop: SPACING.md, ...TYPOGRAPHY.body, color: TEXT_COLORS.tertiary }}>
-                No activity yet. Start creating notes, summarizing PDFs, or using the study planner.
-              </Text>
-            ) : null}
-          </View>
-
-          {/* Activity Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Activity</Text>
-
-            {loadingDashboard ? (
-              <View>
-                <Text style={{ ...TYPOGRAPHY.bodySmall, color: TEXT_COLORS.tertiary }}>Loading activity…</Text>
-              </View>
-            ) : (
-              <View>
-                <Card style={styles.activityCard}>
-                  <Text style={styles.activityTitle}>Recent Notes</Text>
-                  {recentNotes.length ? (
-                    recentNotes.map((n) => (
-                      <View key={n.id} style={styles.activityRow}>
-                        <Text style={styles.activityPrimaryText} numberOfLines={1}>
-                          {n.title || "Untitled"}
-                        </Text>
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={styles.activityEmptyText}>No notes yet.</Text>
-                  )}
-                </Card>
-
-                <Card style={styles.activityCard}>
-                  <Text style={styles.activityTitle}>Recent PDFs</Text>
-                  {recentPdfs.length ? (
-                    recentPdfs.map((p) => (
-                      <View key={p.id} style={styles.activityRow}>
-                        <Text style={styles.activityPrimaryText} numberOfLines={1}>
-                          {p.fileName || "PDF"}
-                        </Text>
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={styles.activityEmptyText}>No PDF summaries yet.</Text>
-                  )}
-                </Card>
-
-                <Card style={styles.activityCard}>
-                  <Text style={styles.activityTitle}>Recent Voice Notes</Text>
-                  {recentVoiceNotes.length ? (
-                    recentVoiceNotes.map((v) => (
-                      <View key={v.id || v._id} style={styles.activityRow}>
-                        <Text style={styles.activityPrimaryText} numberOfLines={1}>
-                          {v.title || "Voice Note"}
-                        </Text>
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={styles.activityEmptyText}>No voice notes yet.</Text>
-                  )}
-                </Card>
-
-                <Card style={styles.activityCard}>
-                  <Text style={styles.activityTitle}>Recent Quizzes</Text>
-                  {recentQuizzes.length ? (
-                    recentQuizzes.map((q, idx) => (
-                      <View key={`${q.source}-${idx}`} style={styles.activityRow}>
-                        <Text style={styles.activityPrimaryText} numberOfLines={1}>
-                          {q.question || "Quiz"}
-                        </Text>
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={styles.activityEmptyText}>No quizzes yet.</Text>
-                  )}
-                </Card>
-
-                <Card style={styles.activityCard}>
-                  <Text style={styles.activityTitle}>Study Tasks</Text>
-                  {recentTasks.length ? (
-                    recentTasks.map((t) => (
-                      <View key={t.id} style={styles.activityRow}>
-                        <Text style={styles.activityPrimaryText} numberOfLines={1}>
-                          {t.title || "Task"}
-                        </Text>
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={styles.activityEmptyText}>No study tasks yet.</Text>
-                  )}
-                </Card>
-
-                <Card style={styles.activityCard}>
-                  <Text style={styles.activityTitle}>Exam Reminders</Text>
-                  {recentReminders.length ? (
-                    recentReminders.map((r) => (
-                      <View key={r.id} style={styles.activityRow}>
-                        <Text style={styles.activityPrimaryText} numberOfLines={1}>
-                          {r.examTitle || "Reminder"}
-                        </Text>
-                      </View>
-                    ))
-                  ) : (
-                    <Text style={styles.activityEmptyText}>No reminders yet.</Text>
-                  )}
-                </Card>
-              </View>
-            )}
-          </View>
-
-          {/* Account Section */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Account</Text>
-
-            <Card style={styles.infoCard}>
-              <View style={styles.infoRow}>
-                <View style={styles.infoIcon}>
-                  <Mail size={20} color={COLORS.primary} />
-                </View>
-                <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Email</Text>
-                  <Text style={styles.infoValue}>{user?.email}</Text>
-                </View>
-              </View>
-            </Card>
-
-            <Card style={styles.infoCard}>
-              <View style={styles.infoRow}>
-                <View style={styles.infoIcon}>
-                  <Calendar size={20} color={COLORS.primary} />
-                </View>
-                <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Joined</Text>
-                  <Text style={styles.infoValue}>—</Text>
-                </View>
-              </View>
-            </Card>
-          </View>
-
-          {/* Settings/Profile Edit */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Settings</Text>
-
-            <Card style={styles.settingCard}>
-              <View style={styles.settingRow}>
-                <View style={styles.settingIcon}>
-                  <Edit2 size={20} color={COLORS.primary} />
-                </View>
-                <Text style={styles.settingText}>Edit Profile</Text>
-              </View>
-
-              <View style={styles.form}>
-                <Text style={styles.formLabel}>Name</Text>
-                <TextInput
-                  value={draftName}
-                  onChangeText={setDraftName}
-                  placeholder="Your name"
-                  placeholderTextColor={TEXT_COLORS.tertiary}
-                  style={styles.input}
-                />
-
-                <Text style={styles.formLabel}>Profile Image URL</Text>
-                <TextInput
-                  value={draftPhotoUrl}
-                  onChangeText={setDraftPhotoUrl}
-                  placeholder="https://..."
-                  placeholderTextColor={TEXT_COLORS.tertiary}
-                  style={styles.input}
-                />
-
-                {profileError ? (
-                  <Text style={{ color: COLORS.error, ...TYPOGRAPHY.caption }}>{profileError}</Text>
-                ) : null}
-
-                <Button
-                  title={profileLoading ? "Saving…" : "Save"}
-                  onPress={onSaveProfile}
-                  loading={profileLoading}
-                  disabled={profileLoading}
-                  variant="outline"
-                  fullWidth
-                  style={styles.saveButton}
-                  textStyle={{ color: COLORS.primary }}
-                />
-              </View>
-            </Card>
-
-            <Card style={styles.settingCard}>
-              <View style={styles.settingRow}>
-                <View style={styles.settingIcon}>
-                  <Settings size={20} color={COLORS.primary} />
-                </View>
-                <Text style={styles.settingText}>Preferences</Text>
-              </View>
-
-              <View style={styles.prefs}>
-                <PreferenceToggle
-                  label="Dark Mode"
-                  value={prefs.darkMode}
-                  onToggle={(v) => onSavePrefs({ ...prefs, darkMode: v })}
-                />
-
-                <PreferenceToggle
-                  label="Notifications"
-                  value={prefs.notifications}
-                  onToggle={(v) => onSavePrefs({ ...prefs, notifications: v })}
-                />
-
-                <PreferenceToggle
-                  label="Study Reminders"
-                  value={prefs.studyReminders}
-                  onToggle={(v) => onSavePrefs({ ...prefs, studyReminders: v })}
-                />
-              </View>
-
-              {prefsError ? (
-                <Text style={{ color: COLORS.error, ...TYPOGRAPHY.caption, marginTop: SPACING.sm }}>
-                  {prefsError}
-                </Text>
-              ) : null}
-            </Card>
-          </View>
-
-          {/* Logout */}
-          <View style={styles.section}>
-            <Button
-              title="Logout"
-              onPress={handleLogout}
-              loading={isLoggingOut}
-              disabled={isLoggingOut}
-              variant="outline"
-              fullWidth
-              icon={<LogOut size={20} color={COLORS.error} />}
-              style={styles.logoutButton}
-              textStyle={{ color: COLORS.error }}
-            />
-            <Text style={styles.logoutDescription}>You'll be signed out</Text>
-          </View>
-
-          {/* Footer */}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>StudyGenie AI v1.0.0</Text>
-            <Text style={styles.footerDescription}>Your personal AI study assistant</Text>
-          </View>
-        </ScrollView>
-      </SafeAreaView>
-    </AuthGuard>
-  );
 }
 
 function PreferenceToggle({
@@ -900,6 +118,7 @@ const toggleStyles = StyleSheet.create({
     ...TYPOGRAPHY.body,
     color: TEXT_COLORS.primary,
     flex: 1,
+    marginRight: SPACING.md,
   },
   track: {
     width: 48,
@@ -916,6 +135,464 @@ const toggleStyles = StyleSheet.create({
   },
 });
 
+export default function ProfileScreen() {
+  const router = useRouter();
+  const { user, loading: authLoading, error: authError } = useAuth();
+
+  const [loading, setLoading] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [prefsSaving, setPrefsSaving] = useState(false);
+  const [imageLoadError, setImageLoadError] = useState(false);
+  // Only show errors after user actions.
+  const [initialLoadError, setInitialLoadError] = useState<string | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadMessage, setUploadMessage] = useState<string | null>(null);
+  const [prefsError, setPrefsError] = useState<string | null>(null);
+
+
+
+
+  const [profile, setProfile] = useState<MongoProfile | null>(null);
+
+  const [draftFullName, setDraftFullName] = useState("");
+  const [draftProfileImage, setDraftProfileImage] = useState("");
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  useEffect(() => {
+    if (!profile) return;
+    // Keep drafts aligned with MongoDB whenever profile is refreshed.
+    setDraftFullName(profile.fullName || "");
+    setDraftProfileImage(profile.profileImage || "");
+  }, [profile?.userId]);
+
+  const [prefs, setPrefs] = useState<Preferences>({
+    darkMode: false,
+    notifications: true,
+    studyReminders: true,
+  });
+
+  const joinedDateText = useMemo(() => formatJoinedDate(profile?.createdAt), [profile?.createdAt]);
+
+  const displayName = useMemo(
+    () => profile?.fullName || user?.displayName || "User",
+    [profile?.fullName, user?.displayName]
+  );
+
+  const displayEmail = useMemo(
+    () => user?.email || profile?.email || "",
+    [user?.email, profile?.email]
+  );
+
+  const displayImageUri = useMemo(() => {
+    if (profile?.profileImage?.trim()) return profile.profileImage.trim();
+    if (user?.photoURL?.trim()) return user.photoURL.trim();
+    return "";
+  }, [profile?.profileImage, user?.photoURL]);
+
+  const avatarInitials = useMemo(() => initialsFromName(profile?.fullName || user?.displayName), [profile?.fullName, user?.displayName]);
+
+
+  const ensureProfileExists = async () => {
+    if (!user) return;
+
+    // GET /api/profile is expected to auto-create for authenticated users.
+    // For initial load we never want to show validation/errors about "not found".
+    const p = await getProfile();
+    console.log("[PROFILE LOADED]", p);
+    setProfile(p);
+    setImageLoadError(false);
+
+    // Everything visible must come from MongoDB.
+    setDraftFullName(p?.fullName || "");
+    setDraftProfileImage(p?.profileImage || "");
+    setPrefs({
+      darkMode: !!p?.preferences?.darkMode,
+      notifications: p?.preferences?.notifications ?? true,
+      studyReminders: p?.preferences?.studyReminders ?? true,
+    });
+  };
+
+  useEffect(() => {
+    let mounted = true;
+    const run = async () => {
+      if (!user) return;
+      setLoading(true);
+      setInitialLoadError(null);
+      setUpdateError(null);
+      setPrefsError(null);
+      try {
+        await ensureProfileExists();
+      } catch (e: any) {
+        if (!mounted) return;
+        // Never show validation errors during initial profile auto-load.
+        setInitialLoadError(e?.message || "Unable to load profile");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    run();
+    return () => {
+      mounted = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid]);
+
+  const onSaveProfile = async () => {
+    if (!user) return;
+
+    const payload: { fullName: string; profileImage?: string } = {
+      fullName: draftFullName.trim(),
+    };
+
+    if (draftProfileImage?.trim()) {
+      payload.profileImage = draftProfileImage.trim();
+    }
+
+    console.log("Full Name State:", draftFullName);
+    console.log("Update Payload:", payload);
+
+    if (!payload.fullName) {
+      setUpdateError("Full Name cannot be empty.");
+      return;
+    }
+
+    setProfileLoading(true);
+    setUpdateError(null);
+    try {
+      const next = await updateProfile(payload);
+      console.log("[PROFILE UPDATE] response:", next);
+      setProfile(next);
+      setImageLoadError(false);
+      await ensureProfileExists();
+      Alert.alert("Profile updated", "Profile updated successfully.");
+    } catch (e: any) {
+      setUpdateError(e?.message || "Unable to update profile");
+    } finally {
+      setProfileLoading(false);
+    }
+  };
+
+  const handlePickImage = async () => {
+    if (!user) return Alert.alert('Not authenticated');
+
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (perm.status !== 'granted') {
+        Alert.alert('Permission required', 'Permission to access photos is required to upload a profile photo.');
+        return;
+      }
+
+      const pickerResult = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      // Cancelled by user
+      // @ts-ignore
+      if (pickerResult.cancelled === true || pickerResult.canceled === true) return;
+
+      // @ts-ignore
+      const localUri = pickerResult.uri || (pickerResult.assets && pickerResult.assets[0]?.uri);
+      if (!localUri) return Alert.alert('Unable to read image');
+
+      setUploadingPhoto(true);
+      setUploadError(null);
+      setUploadMessage(null);
+      setImageLoadError(false);
+
+      const response = await fetch(localUri);
+      const blob = await response.blob();
+      const filename = localUri.split('/').pop() || `photo-${Date.now()}.jpg`;
+      const mime = blob.type || 'image/jpeg';
+
+      const formData = new FormData();
+      if (Platform.OS === 'web') {
+        formData.append('photo', blob, filename);
+      } else {
+        // React Native: append file object with uri, name, type
+        // @ts-ignore
+        formData.append('photo', { uri: localUri, name: filename, type: mime });
+      }
+
+      const uploadResult = await uploadProfilePhoto(formData);
+      const imageUrl = uploadResult.imageUrl;
+      const savedProfile = uploadResult.profile;
+
+      if (!imageUrl) {
+        throw new Error('Upload succeeded but no image URL was returned');
+      }
+
+      setDraftProfileImage(imageUrl);
+      setProfile((prev) => {
+        if (savedProfile) return savedProfile;
+        return prev ? { ...prev, profileImage: imageUrl } : prev;
+      });
+      setImageLoadError(false);
+      setUploadMessage('Profile photo uploaded and saved successfully.');
+    } catch (e: any) {
+      console.error('[UPLOAD PHOTO] Failed:', e?.message || e);
+      setUploadError(e?.message || 'Unable to upload photo');
+      Alert.alert('Upload failed', e?.message || 'Unable to upload photo');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const onSavePrefs = async (next: Preferences) => {
+    if (!user) return;
+
+    setPrefsSaving(true);
+    setPrefsError(null);
+    try {
+      const updated = await updatePreferences(next);
+      setPrefs(next);
+      setProfile(updated);
+      Alert.alert("Preferences saved", "Preferences saved successfully.");
+    } catch (e: any) {
+      setPrefsError(e?.message || "Unable to update preferences");
+    } finally {
+      setPrefsSaving(false);
+    }
+  };
+
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const handleLogout = async () => {
+    if (isLoggingOut) return;
+
+    Alert.alert("Logout", "Are you sure you want to logout?", [
+      { text: "Cancel", onPress: () => {} },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            setIsLoggingOut(true);
+            await signOut(auth);
+            await clearAuthStorage();
+            router.replace("/auth" as any);
+          } catch (e: any) {
+            Alert.alert("Error", e?.message || "Failed to logout");
+          } finally {
+            setIsLoggingOut(false);
+          }
+        },
+      },
+    ]);
+  };
+
+  const [isDeleting, setIsDeleting] = useState(false);
+  const handleDeleteAccount = async () => {
+    if (isDeleting) return;
+
+    Alert.alert(
+      "Delete account",
+      "This will permanently delete your profile from the app. Continue?",
+      [
+        { text: "Cancel", onPress: () => {} },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setIsDeleting(true);
+              await deleteProfileApi();
+              await signOut(auth);
+              await clearAuthStorage();
+              router.replace("/auth" as any);
+            } catch (e: any) {
+              Alert.alert("Error", e?.message || "Failed to delete account");
+            } finally {
+              setIsDeleting(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  if (authLoading || loading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <ActivityIndicator size="large" color={COLORS.primary} />
+      </SafeAreaView>
+    );
+  }
+
+  if (!user && authError) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Text style={{ color: COLORS.error, ...TYPOGRAPHY.body }}>{authError}</Text>
+      </SafeAreaView>
+    );
+  }
+
+  return (
+    <AuthGuard>
+      <SafeAreaView style={styles.container}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+          {/* PROFILE SECTION */}
+          <View style={styles.section}>
+            <Card style={styles.headerCard}>
+              <TouchableOpacity activeOpacity={0.8} style={styles.avatarWrap} onPress={handlePickImage}>
+                {displayImageUri && !imageLoadError ? (
+                  <Image
+                    source={{ uri: displayImageUri }}
+                    style={styles.profileImage}
+                    onError={() => setImageLoadError(true)}
+                  />
+                ) : (
+                  <View style={styles.profileImagePlaceholder}>
+                    <Text style={styles.placeholderText}>{avatarInitials}</Text>
+                  </View>
+                )}
+
+                <View style={styles.cameraOverlay} pointerEvents="none">
+                  <Text style={styles.cameraOverlayText}>📷</Text>
+                </View>
+              </TouchableOpacity>
+
+              <Text style={styles.profileFullName}>{displayName}</Text>
+              <Text style={styles.profileEmail}>{displayEmail}</Text>
+              <Text style={styles.joinedDate}>Joined {joinedDateText}</Text>
+
+              {initialLoadError ? (
+                <View style={styles.errorContainer}>
+                  <Text style={styles.errorText}>{initialLoadError}</Text>
+                </View>
+              ) : null}
+
+              <View style={{ height: SPACING.md }} />
+
+              <View style={styles.formGrid}>
+                <Text style={styles.formLabel}>Full Name</Text>
+                <TextInput
+                  value={draftFullName}
+                  onChangeText={setDraftFullName}
+                  placeholder="Your full name"
+                  placeholderTextColor={TEXT_COLORS.tertiary}
+                  style={styles.input}
+                />
+
+                {updateError ? (
+                  <Text style={{ color: COLORS.error, ...TYPOGRAPHY.caption }}>{updateError}</Text>
+                ) : null}
+                {uploadError ? (
+                  <Text style={{ color: COLORS.error, ...TYPOGRAPHY.caption }}>{uploadError}</Text>
+                ) : null}
+                {uploadMessage ? (
+                  <Text style={{ color: COLORS.success, ...TYPOGRAPHY.caption }}>{uploadMessage}</Text>
+                ) : null}
+
+                <Button
+                  title={uploadingPhoto ? 'Uploading…' : 'Upload Photo'}
+                  onPress={handlePickImage}
+                  loading={uploadingPhoto}
+                  disabled={uploadingPhoto || profileLoading || loading}
+                  variant="outline"
+                  fullWidth
+                  textStyle={{ color: COLORS.primary }}
+                />
+
+                <View style={{ height: SPACING.sm }} />
+
+                <Button
+                  title={profileLoading ? "Saving…" : "Update Profile"}
+                  onPress={onSaveProfile}
+                  loading={profileLoading}
+                  disabled={profileLoading || loading}
+                  variant="outline"
+                  fullWidth
+                  icon={<Settings size={18} color={COLORS.primary} />}
+                  textStyle={{ color: COLORS.primary }}
+                />
+              </View>
+            </Card>
+          </View>
+
+          {/* PREFERENCES SECTION */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Preferences</Text>
+            <Card style={styles.sectionCard}>
+              <View style={styles.prefRowTop}>
+                <Moon size={18} color={COLORS.primary} />
+                <Text style={styles.prefTitle}>Dark Mode</Text>
+              </View>
+              <PreferenceToggle label="Dark Mode" value={prefs.darkMode} onToggle={(v) => setPrefs({ ...prefs, darkMode: v })} />
+
+              <View style={styles.prefRowTop}>
+                <Bell size={18} color={COLORS.primary} />
+                <Text style={styles.prefTitle}>Notifications</Text>
+              </View>
+              <PreferenceToggle
+                label="Notifications"
+                value={prefs.notifications}
+                onToggle={(v) => setPrefs({ ...prefs, notifications: v })}
+              />
+
+              <PreferenceToggle
+                label="Study Reminders"
+                value={prefs.studyReminders}
+                onToggle={(v) => setPrefs({ ...prefs, studyReminders: v })}
+              />
+
+              <View style={{ height: SPACING.md }} />
+              {prefsError ? (
+                <Text style={{ color: COLORS.error, ...TYPOGRAPHY.caption, marginBottom: SPACING.sm }}>
+                  {prefsError}
+                </Text>
+              ) : null}
+              <Button
+                title={prefsSaving ? "Saving…" : "Save Preferences"}
+                onPress={() => onSavePrefs(prefs)}
+                loading={prefsSaving}
+                disabled={prefsSaving || loading}
+                variant="outline"
+                fullWidth
+                textStyle={{ color: COLORS.primary }}
+              />
+            </Card>
+          </View>
+
+          {/* ACCOUNT SECTION */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Account</Text>
+
+            <Card style={styles.sectionCard}>
+              <Button
+                title="Logout"
+                onPress={handleLogout}
+                loading={isLoggingOut}
+                disabled={isLoggingOut}
+                variant="outline"
+                fullWidth
+                icon={<LogOut size={18} color={COLORS.error} />}
+                textStyle={{ color: COLORS.error }}
+              />
+
+              <View style={{ height: SPACING.md }} />
+
+              <Button
+                title={isDeleting ? "Deleting…" : "Delete Account"}
+                onPress={handleDeleteAccount}
+                loading={isDeleting}
+                disabled={isDeleting}
+                variant="outline"
+                fullWidth
+                icon={<Trash2 size={18} color={COLORS.error} />}
+                textStyle={{ color: COLORS.error }}
+              />
+            </Card>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </AuthGuard>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -923,53 +600,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: SPACING.xxl,
-  },
-  profileHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: SPACING.lg,
-    paddingVertical: SPACING.xxl,
-    backgroundColor: COLORS.white,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.gray100,
-  },
-  profileImage: {
-    width: 80,
-    height: 80,
-    borderRadius: BORDER_RADIUS.round,
-    marginRight: SPACING.lg,
-  },
-  avatarContainer: {
-    marginRight: SPACING.lg,
-  },
-  profileImagePlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: BORDER_RADIUS.round,
-    backgroundColor: COLORS.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  placeholderText: {
-    ...TYPOGRAPHY.h1,
-    color: COLORS.white,
-  },
-  profileInfo: {
-    flex: 1,
-  },
-  profileName: {
-    ...TYPOGRAPHY.h3,
-    color: TEXT_COLORS.primary,
-    marginBottom: SPACING.xs,
-  },
-  profileEmail: {
-    ...TYPOGRAPHY.bodySmall,
-    color: TEXT_COLORS.secondary,
-    marginBottom: SPACING.xs,
-  },
-  joinedDate: {
-    ...TYPOGRAPHY.caption,
-    color: TEXT_COLORS.tertiary,
   },
   section: {
     marginHorizontal: SPACING.lg,
@@ -980,81 +610,88 @@ const styles = StyleSheet.create({
     color: TEXT_COLORS.primary,
     marginBottom: SPACING.lg,
   },
-  statsGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap" as any,
-    gap: SPACING.md,
-  },
-  statCard: {
-    flex: 1,
-    minWidth: 160,
-    alignItems: "center",
-    paddingVertical: SPACING.lg,
-    paddingHorizontal: SPACING.md,
-  },
-  statIcon: {
-    marginBottom: SPACING.md,
-  },
-  statValue: {
-    ...TYPOGRAPHY.h2,
-    color: COLORS.primary,
-    marginBottom: SPACING.xs,
-  },
-  statLabel: {
-    ...TYPOGRAPHY.caption,
-    color: TEXT_COLORS.secondary,
-  },
-  infoCard: {
-    marginBottom: SPACING.md,
+  headerCard: {
     paddingVertical: SPACING.lg,
     paddingHorizontal: SPACING.lg,
   },
-  infoRow: {
-    flexDirection: "row",
+  avatarWrap: {
     alignItems: "center",
+    marginBottom: SPACING.md,
   },
-  infoIcon: {
-    marginRight: SPACING.lg,
-    width: 40,
+  cameraOverlay: {
+    position: 'absolute',
+    right: -4,
+    bottom: -4,
+    backgroundColor: COLORS.primary,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: COLORS.white,
+  },
+  cameraOverlayText: {
+    color: COLORS.white,
+    fontSize: 16,
+  },
+  profileImage: {
+    width: 90,
+    height: 90,
+    borderRadius: BORDER_RADIUS.round,
+  },
+  profileImagePlaceholder: {
+    width: 90,
+    height: 90,
+    borderRadius: BORDER_RADIUS.round,
+    backgroundColor: COLORS.primary,
     alignItems: "center",
+    justifyContent: "center",
   },
-  infoContent: {
-    flex: 1,
+  placeholderText: {
+    ...TYPOGRAPHY.h1,
+    color: COLORS.white,
   },
-  infoLabel: {
+  errorContainer: {
+    padding: SPACING.sm,
+    borderRadius: 14,
+    backgroundColor: COLORS.errorLight,
+    marginBottom: SPACING.sm,
+  },
+  errorText: {
     ...TYPOGRAPHY.caption,
-    color: TEXT_COLORS.secondary,
+    color: COLORS.error,
+  },
+  profileFullName: {
+    ...TYPOGRAPHY.h3,
+    color: TEXT_COLORS.primary,
+    textAlign: "center",
     marginBottom: SPACING.xs,
   },
-  infoValue: {
-    ...TYPOGRAPHY.body,
-    color: TEXT_COLORS.primary,
+  profileEmail: {
+    ...TYPOGRAPHY.bodySmall,
+    color: TEXT_COLORS.secondary,
+    textAlign: "center",
+    marginBottom: SPACING.xs,
   },
-  settingCard: {
+  userId: {
+    ...TYPOGRAPHY.caption,
+    color: TEXT_COLORS.tertiary,
+    textAlign: "center",
+    marginBottom: SPACING.sm,
+  },
+  joinedDate: {
+    ...TYPOGRAPHY.caption,
+    color: TEXT_COLORS.tertiary,
+    textAlign: "center",
     marginBottom: SPACING.md,
+  },
+  sectionCard: {
     paddingVertical: SPACING.lg,
     paddingHorizontal: SPACING.lg,
   },
-  settingRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: SPACING.md,
-  },
-  settingIcon: {
-    marginRight: SPACING.lg,
-    width: 40,
-    alignItems: "center",
-  },
-  settingText: {
-    ...TYPOGRAPHY.body,
-    color: TEXT_COLORS.primary,
-  },
-  saveButton: {
-    marginTop: SPACING.md,
-    borderRadius: 12,
-  },
-  form: {
-    marginTop: SPACING.md,
+  formGrid: {
+    marginTop: SPACING.sm,
   },
   formLabel: {
     ...TYPOGRAPHY.caption,
@@ -1072,57 +709,15 @@ const styles = StyleSheet.create({
     color: TEXT_COLORS.primary,
     marginBottom: SPACING.sm,
   },
-  prefs: {
-    marginTop: SPACING.md,
-  },
-  logoutButton: {
-    borderColor: COLORS.error,
-    borderWidth: 2,
-  },
-  logoutDescription: {
-    ...TYPOGRAPHY.caption,
-    color: TEXT_COLORS.secondary,
-    textAlign: "center",
-    marginTop: SPACING.md,
-  },
-  footer: {
+  prefRowTop: {
+    flexDirection: "row",
     alignItems: "center",
-    paddingVertical: SPACING.xl,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.gray100,
-    marginTop: SPACING.xxl,
-  },
-  footerText: {
-    ...TYPOGRAPHY.bodySmallMedium,
-    color: TEXT_COLORS.primary,
-    marginBottom: SPACING.xs,
-  },
-  footerDescription: {
-    ...TYPOGRAPHY.caption,
-    color: TEXT_COLORS.secondary,
-  },
-  activityCard: {
-    marginBottom: SPACING.md,
-    paddingVertical: SPACING.lg,
-    paddingHorizontal: SPACING.lg,
-  },
-  activityTitle: {
-    ...TYPOGRAPHY.bodySmallMedium,
-    color: TEXT_COLORS.primary,
     marginBottom: SPACING.sm,
   },
-  activityRow: {
-    paddingVertical: SPACING.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.gray100,
-  },
-  activityPrimaryText: {
-    ...TYPOGRAPHY.bodySmall,
+  prefTitle: {
+    ...TYPOGRAPHY.body,
     color: TEXT_COLORS.primary,
-  },
-  activityEmptyText: {
-    ...TYPOGRAPHY.caption,
-    color: TEXT_COLORS.tertiary,
+    marginLeft: SPACING.sm,
   },
 });
 
