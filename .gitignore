@@ -5,3 +5,4 @@ dist
 build
 coverage
 npm-debug.log
+server/serviceAccountKey.json
