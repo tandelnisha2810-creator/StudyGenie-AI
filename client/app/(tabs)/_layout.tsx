@@ -8,30 +8,32 @@ import { Tabs } from "expo-router";
 import { COLORS } from "@/utils/colors";
 import { SPACING } from "@/utils/spacing";
 import { Ionicons } from "@expo/vector-icons";
+import { AuthGuard } from "@/components/AuthGuard";
 
 export default function TabLayout() {
 
   return (
-    <Tabs
-      screenOptions={{
-        tabBarActiveTintColor: COLORS.primary,
-        tabBarInactiveTintColor: COLORS.gray400,
-        tabBarStyle: {
-          backgroundColor: COLORS.white,
-          borderTopColor: COLORS.gray100,
-          borderTopWidth: 1,
-          paddingBottom: SPACING.sm,
-          paddingTop: SPACING.sm,
-          height: 70,
-        },
-        headerShown: false,
-        tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: "500",
-          marginTop: SPACING.xs,
-        },
-      }}
-    >
+    <AuthGuard>
+      <Tabs
+        screenOptions={{
+          tabBarActiveTintColor: COLORS.primary,
+          tabBarInactiveTintColor: COLORS.gray400,
+          tabBarStyle: {
+            backgroundColor: COLORS.white,
+            borderTopColor: COLORS.gray100,
+            borderTopWidth: 1,
+            paddingBottom: SPACING.sm,
+            paddingTop: SPACING.sm,
+            height: 70,
+          },
+          headerShown: false,
+          tabBarLabelStyle: {
+            fontSize: 12,
+            fontWeight: "500",
+            marginTop: SPACING.xs,
+          },
+        }}
+      >
 
 
       <Tabs.Screen
@@ -111,6 +113,7 @@ export default function TabLayout() {
 />
       
 
-    </Tabs>
+      </Tabs>
+    </AuthGuard>
   );
 }

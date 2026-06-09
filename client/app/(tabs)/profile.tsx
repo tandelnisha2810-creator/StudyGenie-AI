@@ -398,31 +398,101 @@ export default function ProfileScreen() {
   const handleDeleteAccount = async () => {
     if (isDeleting) return;
 
+    console.log("DELETE STEP 1 - Handler entered");
+
+    // Expo Web: bypass Alert to ensure the confirmation callback runs.
+    if (Platform.OS === "web") {
+      const confirmed = window.confirm(
+        "Are you sure you want to permanently delete your account?\n\nThis action cannot be undone.\nAll profile data, notes, preferences, and account information will be permanently removed."
+      );
+      console.log("DELETE STEP 2 - Confirmation shown");
+      console.log("DELETE STEP 3 - Confirmation accepted", confirmed);
+
+      if (!confirmed) return;
+
+      try {
+        setIsDeleting(true);
+
+        console.log("DELETE STEP 4 - MongoDB deletion started");
+        await deleteProfileApi();
+        console.log("DELETE STEP 5 - MongoDB deletion success");
+        console.log("MongoDB profile deleted");
+        console.log("User-related data deleted");
+
+        console.log("DELETE STEP 6 - Firebase deletion started");
+        await deleteFirebaseUser();
+        console.log("DELETE STEP 7 - Firebase deletion success");
+        console.log("Firebase account deleted");
+
+        console.log("DELETE STEP 8 - Local session cleared");
+        await clearAuthStorage();
+
+        // Clear local UI state
+        setProfile(null);
+        setDraftFullName("");
+        setDraftProfileImage("");
+        setPrefs({
+          darkMode: false,
+          notifications: true,
+          studyReminders: true,
+        });
+        setImageLoadError(false);
+        setInitialLoadError(null);
+        setUpdateError(null);
+        setUploadError(null);
+        setUploadMessage(null);
+        setPrefsError(null);
+
+        console.log("Local session cleared");
+
+              console.log("DELETE STEP 9 - Redirecting to /auth");
+
+              // Avoid dismissAll() stack operations that can trigger:
+              // "POP_TO_TOP was not handled by any navigator" on Expo Router.
+              router.replace({ pathname: "/auth" });
+
+              console.log("Navigation completed");
+      } catch (error: any) {
+        console.error("DELETE ERROR:", error);
+        Alert.alert("Error", String(error?.message || error));
+      } finally {
+        setIsDeleting(false);
+      }
+      return;
+    }
+
     Alert.alert(
       "Delete Account",
       "Are you sure you want to permanently delete your account? This action cannot be undone.",
       [
-        { text: "Cancel", onPress: () => {} },
+        {
+          text: "Cancel",
+          onPress: () => {
+            // Cancel only closes dialog
+          },
+        },
         {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            console.log("Delete account requested");
+            console.log("DELETE STEP 2 - Confirmation shown");
+            console.log("DELETE STEP 3 - Confirmation accepted");
+
             try {
               setIsDeleting(true);
 
-              console.log("Step 1 - Deleting MongoDB profile");
+              console.log("DELETE STEP 4 - MongoDB deletion started");
               await deleteProfileApi();
+              console.log("DELETE STEP 5 - MongoDB deletion success");
               console.log("MongoDB profile deleted");
-
-              // Step 2 is handled on server within deleteProfileApi()
               console.log("User-related data deleted");
 
-              console.log("Step 3 - Deleting Firebase Auth user");
+              console.log("DELETE STEP 6 - Firebase deletion started");
               await deleteFirebaseUser();
+              console.log("DELETE STEP 7 - Firebase deletion success");
               console.log("Firebase account deleted");
 
-              // Step 4 - Clear local session data
+              console.log("DELETE STEP 8 - Local session cleared");
               await clearAuthStorage();
 
               // Step 5/6 - reset local UI state (AuthGuard will redirect once user becomes null)
@@ -443,18 +513,14 @@ export default function ProfileScreen() {
 
               console.log("Local session cleared");
 
-              // Step 6 - Redirect
-              console.log("Redirecting to Login screen");
-              const targetRoute = "/auth";
-              console.log("Navigating to:", targetRoute);
-              router.replace({ pathname: targetRoute });
+              console.log("DELETE STEP 9 - Redirecting to /auth");
+              router.dismissAll?.();
+              router.replace({ pathname: "/auth" });
+
               console.log("Navigation completed");
-            } catch (e: any) {
-              console.error("FULL DELETE ACCOUNT ERROR:", e);
-              Alert.alert(
-                "Error",
-                e?.message ? `Delete account failed: ${e.message}` : "Failed to delete account"
-              );
+            } catch (error: any) {
+              console.error("DELETE ERROR:", error);
+              Alert.alert("Error", String(error?.message || error));
             } finally {
               setIsDeleting(false);
             }

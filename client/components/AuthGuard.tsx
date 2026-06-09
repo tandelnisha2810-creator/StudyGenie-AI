@@ -13,17 +13,22 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   useEffect(() => {
     if (!loading && !user) {
-      router.replace("/auth" as any);
+      // Hard redirect away from protected routes.
+      router.replace("/auth");
     }
   }, [loading, user, router]);
 
-  if (loading || !user) {
+  if (loading) {
     return (
       <SafeAreaView style={styles.loaderContainer}>
         <ActivityIndicator size="large" color="#7C3AED" />
       </SafeAreaView>
     );
   }
+
+  // If not authenticated, do not render protected children.
+  // This prevents tab/home from "winning" while the redirect occurs.
+  if (!user) return null;
 
   return <>{children}</>;
 }
