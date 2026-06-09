@@ -35,6 +35,8 @@ import {
   deleteProfile as deleteProfileApi,
 } from "@/services/profileService";
 import { uploadProfilePhoto } from "@/services/profileService";
+import { deleteFirebaseUser } from "@/services/authAccountService";
+
 
 
 type Preferences = {
@@ -360,28 +362,36 @@ export default function ProfileScreen() {
   };
 
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
   const handleLogout = async () => {
+    console.log("STEP 1 - Logout handler entered");
     if (isLoggingOut) return;
 
-    Alert.alert("Logout", "Are you sure you want to logout?", [
-      { text: "Cancel", onPress: () => {} },
-      {
-        text: "Logout",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            setIsLoggingOut(true);
-            await signOut(auth);
-            await clearAuthStorage();
-            router.replace("/auth" as any);
-          } catch (e: any) {
-            Alert.alert("Error", e?.message || "Failed to logout");
-          } finally {
-            setIsLoggingOut(false);
-          }
-        },
-      },
-    ]);
+    try {
+      setIsLoggingOut(true);
+
+      console.log("STEP 2 - Starting Firebase signOut");
+      await signOut(auth);
+      console.log("STEP 3 - Firebase signOut success");
+
+      console.log("STEP 4 - Clearing local storage");
+      await clearAuthStorage();
+
+      console.log("STEP 5 - Clearing profile state");
+      setProfile(null);
+      setDraftFullName("");
+      setDraftProfileImage("");
+
+      console.log("STEP 6 - Navigating to /auth");
+      router.dismissAll?.();
+      router.replace("/auth");
+
+      console.log("STEP 7 - Navigation complete");
+    } catch (error: any) {
+      console.error("LOGOUT ERROR:", error);
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   const [isDeleting, setIsDeleting] = useState(false);
@@ -389,22 +399,62 @@ export default function ProfileScreen() {
     if (isDeleting) return;
 
     Alert.alert(
-      "Delete account",
-      "This will permanently delete your profile from the app. Continue?",
+      "Delete Account",
+      "Are you sure you want to permanently delete your account? This action cannot be undone.",
       [
         { text: "Cancel", onPress: () => {} },
         {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
+            console.log("Delete account requested");
             try {
               setIsDeleting(true);
+
+              console.log("Step 1 - Deleting MongoDB profile");
               await deleteProfileApi();
-              await signOut(auth);
+              console.log("MongoDB profile deleted");
+
+              // Step 2 is handled on server within deleteProfileApi()
+              console.log("User-related data deleted");
+
+              console.log("Step 3 - Deleting Firebase Auth user");
+              await deleteFirebaseUser();
+              console.log("Firebase account deleted");
+
+              // Step 4 - Clear local session data
               await clearAuthStorage();
-              router.replace("/auth" as any);
+
+              // Step 5/6 - reset local UI state (AuthGuard will redirect once user becomes null)
+              setProfile(null);
+              setDraftFullName("");
+              setDraftProfileImage("");
+              setPrefs({
+                darkMode: false,
+                notifications: true,
+                studyReminders: true,
+              });
+              setImageLoadError(false);
+              setInitialLoadError(null);
+              setUpdateError(null);
+              setUploadError(null);
+              setUploadMessage(null);
+              setPrefsError(null);
+
+              console.log("Local session cleared");
+
+              // Step 6 - Redirect
+              console.log("Redirecting to Login screen");
+              const targetRoute = "/auth";
+              console.log("Navigating to:", targetRoute);
+              router.replace({ pathname: targetRoute });
+              console.log("Navigation completed");
             } catch (e: any) {
-              Alert.alert("Error", e?.message || "Failed to delete account");
+              console.error("FULL DELETE ACCOUNT ERROR:", e);
+              Alert.alert(
+                "Error",
+                e?.message ? `Delete account failed: ${e.message}` : "Failed to delete account"
+              );
             } finally {
               setIsDeleting(false);
             }
@@ -564,7 +614,10 @@ export default function ProfileScreen() {
             <Card style={styles.sectionCard}>
               <Button
                 title="Logout"
-                onPress={handleLogout}
+                onPress={async () => {
+                  console.log("STEP 0 - Logout Button onPress");
+                  await handleLogout();
+                }}
                 loading={isLoggingOut}
                 disabled={isLoggingOut}
                 variant="outline"

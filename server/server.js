@@ -18,8 +18,11 @@ const plannerReminderRoutes = require('./routes/plannerReminderRoutes');
 const plannerTimerRoutes = require('./routes/plannerTimerRoutes');
 const plannerStatsRoutes = require('./routes/plannerStatsRoutes');
 const userProfileRoutes = require('./routes/userProfileRoutes');
+const firebaseAuthRoutes = require('./routes/firebaseAuthRoutes');
 const authMiddleware = require('./middleware/authMiddleware');
 connectDB();
+
+
 
 
 
@@ -58,8 +61,11 @@ app.use('/api/profile', (req, res, next) => {
   next();
 }, authMiddleware, userProfileRoutes);
 
+// Firebase Auth (Admin-only)
+app.use('/api/firebase-auth', firebaseAuthRoutes);
 
 app.use((req, res) => {
+
 
   res.status(404).json({
     success: false,

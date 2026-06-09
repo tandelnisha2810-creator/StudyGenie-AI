@@ -77,5 +77,39 @@ export const getStoredUser = async (): Promise<{
 };
 
 export const clearAuthStorage = async () => {
-  await Promise.all([storage.removeItem(TOKEN_KEY), storage.removeItem(USER_KEY)]);
+  try {
+    // Remove canonical auth keys
+    await Promise.all([storage.removeItem(TOKEN_KEY), storage.removeItem(USER_KEY)]);
+
+    // Remove any other likely auth/session keys from AsyncStorage/localStorage
+    if (!isWeb) {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      const keys = await AsyncStorage.getAllKeys();
+      const toRemove = keys.filter((k: string) => /auth|token|session|user/i.test(k));
+      if (toRemove.length) await AsyncStorage.multiRemove(toRemove);
+    } else {
+      // Web: scan localStorage keys
+      for (let i = 0; i < window.localStorage.length; i++) {
+        const k = window.localStorage.key(i);
+        if (k && /auth|token|session|user/i.test(k)) window.localStorage.removeItem(k);
+      }
+    }
+
+    // Try clearing SecureStore entries if expo-secure-store is available
+    try {
+      // dynamic require to avoid hard dependency
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const SecureStore = require('expo-secure-store');
+      if (SecureStore && SecureStore.deleteItemAsync) {
+        await Promise.all([
+          SecureStore.deleteItemAsync(TOKEN_KEY).catch(() => {}),
+          SecureStore.deleteItemAsync(USER_KEY).catch(() => {}),
+        ]);
+      }
+    } catch {}
+  } catch (err) {
+    // Non-fatal; log for diagnostics
+    // eslint-disable-next-line no-console
+    console.warn('clearAuthStorage: partial failure', err);
+  }
 };
